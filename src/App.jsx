@@ -87,10 +87,10 @@ export default function App() {
     <div className="min-h-screen p-6">
       <header className="mb-6 flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
+          <h1 className="text-[1.75rem] font-bold text-brand-primary">
             Vibecoding Project Tracker
           </h1>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-text-muted">
             {/* Replace this line with your team name from PRD §11. */}
             Team starter
           </p>
@@ -109,7 +109,7 @@ export default function App() {
           Add a "+" button that opens a modal with every Task field.
           Clicking a card should open the same modal in edit mode.
       */}
-      <main className="flex h-64 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-400">
+      <main className="flex h-64 items-center justify-center rounded-lg border-2 border-dashed border-surface-border text-text-muted">
         Build the four-column board here · M4
       </main>
     </div>

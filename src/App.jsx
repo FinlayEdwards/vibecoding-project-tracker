@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
   AlarmClock,
   ArrowRightLeft,
@@ -24,7 +25,7 @@ import {
  *   - M6  tag-style     : bug vs. safe change (icon + label + colour). ✓
  *   - M7  task-owner    : owner avatar + "Hand off to..." + who's driving. ✓
  *   - M8  due-tint      : urgency states from the due date.             ✓
- *   - M9  context       : Markdown AI context field on the modal.
+ *   - M9  task-context  : Markdown context + preview, AI tool, history.  ✓
  *   - M10 copy-prompt   : "Copy as Prompt Context" handoff block.
  *   - M11 anchors       : the Deliverable Anchor Board above the Kanban.
  *   - M12 secret-sauce  : drag-and-drop with column ordering.
@@ -43,7 +44,9 @@ import {
  * @property {string|null} assignedTeamId
  * @property {string|null} dueDate       ISO 'YYYY-MM-DD'
  * @property {string} aiContext          Markdown
+ * @property {string|null} contextUpdatedAt ISO timestamp, set whenever aiContext is edited
  * @property {string|null} aiToolId      Current / most recent tool
+ * @property {AIUsageEntry[]} aiUsageLog Append-only history (PRD §6 AIUsageLog)
  * @property {string|null} deliverableId
  * @property {number} position           Order within its column
  * @property {string} createdBy          User id
@@ -52,10 +55,19 @@ import {
  * @property {string|null} completedAt   ISO timestamp
  */
 
-// The four columns of the board, in render order.
-// Use these IDs everywhere — do not invent new ones.
+/**
+ * @typedef {Object} AIUsageEntry
+ * @property {string} id
+ * @property {string} aiToolId
+ * @property {string} usedBy             User id
+ * @property {string} contextSnapshot    Markdown at the time of logging
+ * @property {string} loggedAt           ISO timestamp
+ */
+
 const findById = (list, id) => list.find((item) => item.id === id) ?? null;
 
+// The four columns of the board, in render order.
+// Use these IDs everywhere — do not invent new ones.
 export const STAGES = [
   { id: 'todo',        label: 'To Do' },
   { id: 'in-progress', label: 'In Progress' },
@@ -124,6 +136,8 @@ export const AI_TOOLS = [
   { id: 'tool-cursor',  name: 'Cursor' },
   { id: 'tool-lovable', name: 'Lovable' },
   { id: 'tool-bolt',    name: 'Bolt' },
+  { id: 'tool-replit',  name: 'Replit' },
+  { id: 'tool-other',   name: 'Other' },
 ];
 
 /** 'YYYY-MM-DD' for today + `days`, so seeded due dates stay relative to the demo date. */
@@ -230,7 +244,15 @@ export function formatTaskId(n) {
 
 function seedTasks() {
   const now = new Date().toISOString();
-  const base = { createdBy: 'u-finlay', createdAt: now, updatedAt: now, completedAt: null, deliverableId: null };
+  const base = {
+    createdBy: 'u-finlay',
+    createdAt: now,
+    updatedAt: now,
+    completedAt: null,
+    deliverableId: null,
+    contextUpdatedAt: now,
+    aiUsageLog: [],
+  };
   return [
     {
       ...base,
@@ -271,7 +293,21 @@ function seedTasks() {
       assignedUserId: 'u-finlay',
       assignedTeamId: 'team-frontend',
       dueDate: isoDateFromToday(2),
-      aiContext: 'Needs focus trap, Esc to close, and focus returned to the opening card.',
+      aiContext: [
+        '## Background',
+        'Tickets need an add / edit dialog with every field from the data model.',
+        '',
+        '## Constraints',
+        '- Native `<dialog>` for focus containment and Esc to close',
+        '- Visible labels on every field; errors as text',
+        '- Return focus to the card that opened it',
+        '',
+        '## Tried so far',
+        'A custom overlay `div` — dropped because focus escaped behind it.',
+        '',
+        '## Pick up',
+        'Wire the delete confirmation and check the flow with a screen reader.',
+      ].join('\n'),
       aiToolId: 'tool-claude',
       position: 0,
     },
@@ -344,6 +380,21 @@ function assigneeLabel(task) {
   return 'Unassigned';
 }
 
+// Starting structure for a new ticket's context, so every briefing answers the same questions.
+const CONTEXT_TEMPLATE = [
+  '## Background',
+  'What is this ticket and why does it matter?',
+  '',
+  '## Constraints',
+  '- ',
+  '',
+  '## Tried so far',
+  '- ',
+  '',
+  '## Pick up',
+  'What the next AI session should do first.',
+].join('\n');
+
 /** A blank ticket for the "new" modal; the ID is assigned on save. */
 function emptyDraft() {
   return {
@@ -354,10 +405,33 @@ function emptyDraft() {
     assignedUserId: null,
     assignedTeamId: null,
     dueDate: null,
-    aiContext: '',
+    aiContext: CONTEXT_TEMPLATE,
+    contextUpdatedAt: null,
     aiToolId: null,
+    aiUsageLog: [],
     deliverableId: null,
   };
+}
+
+/**
+ * Appends an AI usage entry when a tool is set and either the tool or the context changed,
+ * so the log records each meaningful AI session without duplicating unchanged saves.
+ */
+function withUsageLog(draft, previous, now) {
+  const log = draft.aiUsageLog ?? [];
+  const changed =
+    !previous || previous.aiToolId !== draft.aiToolId || previous.aiContext !== draft.aiContext;
+  if (!draft.aiToolId || !changed) return log;
+  return [
+    ...log,
+    {
+      id: `${now}-${log.length}`,
+      aiToolId: draft.aiToolId,
+      usedBy: USERS[0].id,
+      contextSnapshot: draft.aiContext,
+      loggedAt: now,
+    },
+  ];
 }
 
 /** Next free position at the bottom of a column. */
@@ -415,7 +489,123 @@ function OptionalSelect({ id, value, onChange, options, emptyLabel }) {
  * Add / edit ticket modal. Uses the native <dialog> so the browser provides
  * Esc-to-close, focus containment and an inert background (DESIGN.md §4).
  */
-function TaskModal({ task, onSave, onDelete, onClose }) {
+const relativeTime = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+/** '2 hours ago', 'yesterday', 'just now' … */
+function timeAgo(iso, now) {
+  const seconds = Math.round((new Date(iso).getTime() - now) / 1000);
+  if (Math.abs(seconds) < 60) return 'just now';
+  const units = [
+    ['year', 365 * 24 * 3600],
+    ['month', 30 * 24 * 3600],
+    ['day', 24 * 3600],
+    ['hour', 3600],
+    ['minute', 60],
+  ];
+  const [unit, size] = units.find(([, s]) => Math.abs(seconds) >= s);
+  return relativeTime.format(Math.round(seconds / size), unit);
+}
+
+// Links in rendered context open in a new tab so the user never loses the modal, and say so.
+const markdownComponents = {
+  a: ({ node, children, ...props }) => (
+    <a {...props} target="_blank" rel="noopener noreferrer">
+      {children}
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
+  ),
+};
+
+/**
+ * M9 task-context: Markdown briefing with a live preview, the AI tool used,
+ * a "last updated" hint and the append-only AI usage history (PRD §5–6).
+ */
+function ContextSection({ draft, setDraft, now }) {
+  const history = [...(draft.aiUsageLog ?? [])].reverse().slice(0, 5);
+  return (
+    <section aria-labelledby="context-heading" className="rounded-md border border-surface-border p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id="context-heading" className="text-lg font-bold">
+          Context
+        </h3>
+        <p id="task-context-updated" className="text-sm text-text-muted">
+          {draft.contextUpdatedAt ? `Last updated ${timeAgo(draft.contextUpdatedAt, now)}` : 'Not edited yet'}
+        </p>
+      </div>
+
+      <div className="mt-2 grid gap-4 md:grid-cols-2">
+        <div>
+          <label htmlFor="task-context" className="block font-semibold">
+            AI context (Markdown)
+          </label>
+          <p id="task-context-hint" className="text-sm text-text-muted">
+            A paste-ready briefing: what the next AI session needs to pick this up.
+          </p>
+          <textarea
+            id="task-context"
+            rows={12}
+            className={`${inputClass} font-mono text-sm`}
+            value={draft.aiContext}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, aiContext: e.target.value, contextUpdatedAt: new Date().toISOString() }))
+            }
+            aria-describedby="task-context-hint task-context-updated"
+          />
+        </div>
+
+        <div className="flex min-w-0 flex-col">
+          <p id="context-preview-label" className="font-semibold">
+            Preview
+          </p>
+          <p className="text-sm text-text-muted">How the context reads once rendered.</p>
+          {/* Focusable so keyboard users can scroll a long preview. */}
+          <div
+            role="region"
+            aria-labelledby="context-preview-label"
+            tabIndex={0}
+            className="markdown mt-1 max-h-80 min-h-40 flex-1 overflow-auto rounded-md border border-surface-border bg-surface-page p-3"
+          >
+            {draft.aiContext.trim() ? (
+              <ReactMarkdown components={markdownComponents}>{draft.aiContext}</ReactMarkdown>
+            ) : (
+              <p className="text-text-muted">Nothing to preview yet.</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 max-w-sm">
+        <Field id="task-tool" label="AI tool">
+          <OptionalSelect
+            id="task-tool"
+            value={draft.aiToolId}
+            onChange={(aiToolId) => setDraft((d) => ({ ...d, aiToolId }))}
+            options={AI_TOOLS}
+            emptyLabel="None yet"
+          />
+        </Field>
+      </div>
+
+      {history.length > 0 && (
+        <div className="mt-4">
+          <h4 className="font-semibold">AI tool history</h4>
+          <ol className="mt-1 flex flex-col gap-1 text-sm">
+            {history.map((entry) => (
+              <li key={entry.id} className="flex flex-wrap gap-x-2">
+                <span className="font-semibold">{findById(AI_TOOLS, entry.aiToolId)?.name ?? 'Unknown tool'}</span>
+                <span className="text-text-muted">
+                  {findById(USERS, entry.usedBy)?.name ?? 'Someone'} · {timeAgo(entry.loggedAt, now)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TaskModal({ task, now, onSave, onDelete, onClose }) {
   const dialogRef = useRef(null);
   const titleRef = useRef(null);
   const isNew = !task.id;
@@ -452,7 +642,7 @@ function TaskModal({ task, onSave, onDelete, onClose }) {
         e.preventDefault();
         onClose();
       }}
-      className="w-[calc(100%-2rem)] max-w-[640px] rounded-lg bg-surface-card p-0 text-text-primary"
+      className="w-[calc(100%-2rem)] max-w-[960px] rounded-lg bg-surface-card p-0 text-text-primary"
     >
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -567,29 +757,9 @@ function TaskModal({ task, onSave, onDelete, onClose }) {
               onChange={(e) => set('dueDate')(e.target.value || null)}
             />
           </Field>
-
-          <Field id="task-tool" label="AI tool used">
-            <OptionalSelect
-              id="task-tool"
-              value={draft.aiToolId}
-              onChange={set('aiToolId')}
-              options={AI_TOOLS}
-              emptyLabel="None yet"
-            />
-          </Field>
         </div>
 
-        {/* TODO M9 context: render the Markdown preview alongside this field. */}
-        <Field id="task-context" label="AI context" hint="Markdown. Paste the prompt, decisions and anything the next AI session needs.">
-          <textarea
-            id="task-context"
-            rows={5}
-            className={`${inputClass} font-mono`}
-            value={draft.aiContext}
-            onChange={(e) => set('aiContext')(e.target.value)}
-            aria-describedby="task-context-hint"
-          />
-        </Field>
+        <ContextSection draft={draft} setDraft={setDraft} now={now} />
 
         {/* TODO M11 anchors: deliverable select once deliverables exist. */}
 
@@ -899,6 +1069,7 @@ export default function App() {
         {
           ...draft,
           id,
+          aiUsageLog: withUsageLog(draft, null, now),
           position: nextPosition(tasks, draft.status),
           createdBy: USERS[0].id,
           createdAt: now,
@@ -914,6 +1085,7 @@ export default function App() {
           const movedColumn = t.status !== draft.status;
           return {
             ...draft,
+            aiUsageLog: withUsageLog(draft, t, now),
             position: movedColumn ? nextPosition(tasks, draft.status) : t.position,
             updatedAt: now,
             completedAt: draft.status === 'done' ? t.completedAt ?? now : null,
@@ -979,7 +1151,7 @@ export default function App() {
       </main>
 
       {editing && (
-        <TaskModal task={editing} onSave={saveTask} onDelete={deleteTask} onClose={closeModal} />
+        <TaskModal task={editing} now={now} onSave={saveTask} onDelete={deleteTask} onClose={closeModal} />
       )}
 
       <div

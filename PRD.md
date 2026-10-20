@@ -1,169 +1,140 @@
 # Vibecoding Project Tracker — PRD
 
-**Status:** Hackathon starter PRD · review and fill in the **`<TODO>`** sections before you tag `prd-done`.
+**Status:** Reviewed for a solo project. This PRD captures the requirements for the hackathon build and the public assessment demo.
 
 ---
 
 ## 1. Problem
 
-Vibecoding teams have two recurring pains with large projects:
+Vibecoding work is easy to lose track of: tickets move between stages, deadlines approach, and the AI conversations that produced working code are hard to recover. A general project tool does not make AI context a first-class part of a ticket.
 
-1. **They lose track of tasks.** Three teammates, a hundred small things, no shared view. Nothing tells them what state each task is actually in.
-2. **They lose track of prompts.** The AI gave them working code two days ago but no one remembers the prompt that produced it. When they need to iterate, they start from scratch.
-
-A spreadsheet doesn't solve this. A real project tool (Linear, Jira, Notion) is overkill, doesn't know about prompts, and takes hours to set up.
+The tracker gives the developer one place to manage work, see urgency, and resume an AI-assisted task from its saved context.
 
 ## 2. Target users
 
-- **Primary:** the team members, for the remaining weeks of the summer semester.
-- **Secondary:** future cohorts of vibecoders taking the same class.
+- **Primary:** the solo developer managing their vibecoding projects.
+- **Assessment users:** evaluators opening the public demo, which should contain sample data and be usable without setup.
 
-We are designing the tool we ourselves will use. The pitch demo is also our first real user test.
+The data model allows assignment to an individual and/or a team so it can support collaborative use later, while this project is currently developed as a solo task.
 
 ## 3. Product overview
 
-A single-page web app with two persistent surfaces:
+A web app with a four-column Kanban board and a deliverable area. Each ticket has a permanent human-readable ID, an owner and/or team assignment, due date, type, status, and Markdown AI context. The context renders for reading and can be copied as a complete handoff block for a new AI session. AI tool usage is recorded per ticket, preferably as a history.
 
-- A **Kanban board** where vibecoding tasks move through four states.
-- An **Anchor Board** above it that pins the four final-project deliverables (Presentation, Demo, Report, Documentation).
-
-Each task carries the prompt context that produced it, so any teammate can click a button and copy the task + prompt history back into an AI chat to continue work.
+The deployed assessment demo is seeded with sample users, roles, tickets, and AI tools so it is not empty.
 
 ## 4. Primary user flow
 
-1. Open the Webapp. The board loads from local storage.
-2. Click "+" to add a task. Fill in title, type, assignee, due date, prompt context.
-3. Move the task across columns as you work.
-4. When stuck, click "Copy as Prompt Context" on a task and paste it into Claude/ChatGPT/Cursor to continue.
-5. Hand off a task to a teammate with one dropdown.
-6. Drop final deliverable links into the Anchor Board as you produce them.
+1. Open the app and see the board and deliverables.
+2. Create a ticket; the app assigns its next unique `TASK-###` ID.
+3. Set its type, status, individual and/or team assignment, due date, AI context, AI tool usage, and deliverable link.
+4. Move the ticket through To Do, In Progress, Review, and Done; its urgency state updates from the due date.
+5. Read the rendered Markdown context or copy a paste-ready block containing the ticket ID, title, status, AI tool, and raw context.
+6. Use the copied block to continue development in a new AI session.
 
-## 5. Data model
+## 5. Functional requirements
 
-Locked. Do not change without team agreement.
+- Tickets have unique, automatically generated, human-readable IDs such as `TASK-001`. An ID is immutable and is never reused, including after a ticket is deleted.
+- Tickets can be assigned to an individual user, a development team, or both.
+- Every ticket can have a due-by date.
+- Every ticket has an AI context field stored as Markdown and rendered on display.
+- Record the AI tool used on a ticket. Prefer an append-only usage history over a single current value.
+- Provide one-click copy of the raw Markdown context. The paste-ready block includes ticket ID, title, status, AI tool, and context.
+- Each ticket can link to a deliverable. The exact deliverable fields and relationship remain a design detail to settle during implementation; see §8.
+- User accounts store name, unique email, GitHub username, and role. Login is a nice-to-have: email/password or GitHub OAuth.
+- Include a unique interaction, such as drag-and-drop with column ordering.
+- Seed the public demo with sample users, roles, tickets, and AI tools.
 
-```js
-// A single vibecoding task.
-Task = {
-  id: string,                    // uuid or timestamp string
-  title: string,
-  description: string,
-  type: 'feature' | 'bug',       // visual color coding
-  status: 'todo' | 'in-progress' | 'review' | 'done',
-  assignee: string,              // one of the three teammate names from §8
-  dueDate: string | null,        // ISO date 'YYYY-MM-DD'
-  createdDate: string,           // ISO date 'YYYY-MM-DD'
+## 6. Data model
 
-  // Added in later milestones:
-  context: string,               // M9 context — curated briefing for the next AI / teammate
-  contextTool: string | null,    // M9 context — 'Claude' | 'ChatGPT' | 'Cursor' | 'Lovable' | 'Replit' | 'Other'
-  contextUpdatedAt: string|null, // M9 context — ISO timestamp set automatically on save
-}
+```text
+User: user_id, name, email (unique), github_username, role_id,
+      password_hash or auth_provider_id (if login is implemented), created_at
 
-// One of four pinned deliverable slots.
-Anchor = {
-  id: 'presentation' | 'demo' | 'report' | 'documentation',
-  label: string,                 // human-readable
-  url: string | null,            // the link the team pastes in
-}
+Role: role_id, name, permissions (optional)
+
+Team: team_id, name
+TeamMember: team_id, user_id                     # many-to-many
+
+Ticket: ticket_id (human-readable immutable PK, e.g. TASK-001),
+        title, description, type (bug / safe_change),
+        status (To Do / In Progress / Review / Done),
+        assigned_user_id (nullable), assigned_team_id (nullable),
+        due_date, ai_context (Markdown text), ai_tool_id (nullable),
+        deliverable_id (nullable / placeholder), position,
+        created_by, created_at, updated_at, completed_at (nullable)
+
+AITool: ai_tool_id, name (Claude, ChatGPT, Copilot, Cursor, Lovable, Bolt),
+        version_or_model (optional)
+
+AIUsageLog (preferred): log_id, ticket_id, ai_tool_id, used_by,
+                        context_snapshot (Markdown), logged_at
+
+Deliverable (placeholder): deliverable_id, name, description,
+                           other fields to be decided
 ```
 
-## 6. Tech stack
+`urgency_state` is derived, not stored, from `due_date` and the current date. Ticket ID allocation must remain monotonic or otherwise retain deleted IDs so an ID can never be reused. `ai_tool_id` may represent the current/most recent tool; `AIUsageLog` preserves usage history.
 
-| Layer | Choice | Why |
-|---|---|---|
-| Framework | React (via Vite) | What the scaffold ships with. Don't migrate. |
-| Styling | Tailwind | Already configured. Use utility classes; no separate CSS files. |
-| State | React `useState` + a `useLocalStorage` hook | Simple, no library needed. |
-| Persistence | **localStorage** | Zero infra. Pick this. Do not switch to a backend mid-hackathon. |
-| Deploy | Vercel | One-click deploy from GitHub. |
+## 7. Technical and delivery decisions
 
-> **Decision:** localStorage, not a shared backend. If you want a shared backend later, that's M14 — out of scope for the hackathon.
+| Area | Requirement / decision |
+|---|---|
+| Framework | React via Vite, as provided by the starter. |
+| Styling | Tailwind, as configured in the starter. |
+| Hackathon operation | No deployment is needed to complete the hackathon build. |
+| Assessment | The finished demo must be available at a public URL for Fernando's assessment. The URL is pending deployment. |
+| Persistence | Keep the implementation proportionate to the hackathon. Seed the deployed demo; choose storage that preserves the required behavior in the assessment environment. The starter's localStorage approach is acceptable for a single-browser prototype, but does not provide shared accounts or data across browsers. |
+| Authentication | Nice to have. If implemented, use email/password or GitHub OAuth; store password hashes, never plaintext passwords. |
 
-## 7. Stage names
+## 8. Deliverables and open detail
 
-Four columns, in this order, with these exact labels in the UI:
+Tickets link to a deliverable, but the exact deliverable catalog and fields are still to be decided. The starter's four anchor slots—Presentation, Demo, Report, and Documentation—are a useful initial proposal, not a locked schema. Keep the relationship extensible until the deliverable requirements are settled.
+
+## 9. Board workflow
+
+The board has four columns with these exact labels:
 
 1. **To Do**
 2. **In Progress**
 3. **Review**
 4. **Done**
 
-## 8. Team
+Tickets can be reordered within columns. The selected unique interaction should be visible in the demo; drag-and-drop with column ordering is the current example.
 
-Fill these in before tagging `prd-done`:
+## 10. Visual design, accessibility, and security
 
-| Slot | Name | GitHub handle |
-|---|---|---|
-| Teammate A | `<TODO>` | `<TODO>` |
-| Teammate B | `<TODO>` | `<TODO>` |
-| Teammate C | `<TODO>` | `<TODO>` |
+- Bugs and safe changes are distinct through an icon plus color or pattern; color alone is insufficient.
+- Due-date states cover overdue, due within 24 hours, due within 3 days, and on track. Thresholds are configurable constants.
+- Each urgency/color state has a text label and icon. Done tickets should have a clear completed state.
+- Meet WCAG AA contrast, support full keyboard navigation, and provide screen-reader labels and appropriate ARIA attributes.
+- Keep a short design-decision log that maps choices to usability principles.
+- Security is not a critical hackathon focus. If accounts are implemented, hash passwords and provide basic role-based access control.
 
-These three names become the **only** allowed values for `Task.assignee`. No auth — just a dropdown.
+## 11. Solo project details
 
-## 9. Milestone ownership
+- **Mode:** solo development; team roster and milestone ownership assignments do not apply.
+- **Project owner:** the person developing this repository.
+- **Project name and tagline:** use the product name, Vibecoding Project Tracker; a separate tagline is optional for this solo task.
+- **Public assessment URL:** pending deployment.
 
-Fill in the owner column. Recommended default in **bold**; change if your team has different strengths.
+## 12. Scope and priorities
 
-| # | Tag | Title | Suggested owner | Final owner |
-|---|---|---|---|---|
-| 3 | `design-done` | Design system + voice (DESIGN.md) | **B** | `<TODO>` |
-| 4 | `data-model` | Task model + board view | **A** | `<TODO>` |
-| 5 | `crud-modal` | Add / edit / delete modal | **A** | `<TODO>` |
-| 6 | `tag-style` | Feature / bug colors | **B** | `<TODO>` |
-| 7 | `task-owner` | Owner indicator + handoff | **A** | `<TODO>` |
-| 8 | `due-tint` | Due-date color tinting | **B** | `<TODO>` |
-| 9 | `context` | Context field on the task modal | **C** | `<TODO>` |
-| 10 | `copy-prompt` | "Copy as Prompt Context" button | **C** | `<TODO>` |
-| 11 | `anchors` | Deliverable Anchor Board | **B** | `<TODO>` |
-| 12 | `secret-sauce` | The one thing that makes it yours | **C / All** | `<TODO>` |
-| 13 | `pitch-ready` | Demo + pitch rehearsal | **All** | `<TODO>` |
+**Core:** ticket IDs, board workflow, assignment fields, due dates and urgency, Markdown context display, copy handoff block, AI tool tracking, deliverable link, accessibility requirements, and seeded demo data.
 
-
-Track A owns the state model and task ownership. Track B owns the visuals (and design — M3 runs parallel to M2 so the team starts Phase 3 with the palette already chosen). Track C owns the differentiator features (M9 + M10 — the context field and the Copy-as-Prompt button) and usually leads on M12 secret-sauce. Put your strongest prompter on Track C.
-
-**Dependency note.** M3 (`design-done`) runs **in parallel with M2** — Person B drafts DESIGN.md and pastes the colors into `tailwind.config.js` while the rest of the team reviews the PRD. M6 / M7 / M8 / M11 all depend on M4 + M5 being done first. While Person A builds M4+M5 (first ~60 min of Phase 3), Person C should draft the Markdown template for the "Copy as Prompt Context" output (M10). M12 `secret-sauce` is open-ended — pick whatever makes the tracker uniquely yours; constraint is "must be visible in the demo and must not break anything else."
-
-## 10. AI / vibe coding angle
-
-Where AI will be heavily used:
-- M4, M5: scaffold the board and the modal from a single prompt each.
-- M9, M10: write the Markdown serialization helper for the Context field.
-- M7: animation polish for the handoff toast.
-
-Where AI will **not** save you time:
-- M2 (this PRD review) — read it yourself.
-- M3 (DESIGN.md) — design taste is yours, not the model's.
-- M12 (secret-sauce) — the whole point is that AI can't predict it.
-- M13 (pitch) — write the script in your own voice.
-
-Keep the Context field of each real task up to date as you work. By the end of the hackathon you should have a handful of curated context blocks — those become part of your Module 5 "Vibe Coding History" deliverable.
-
-## 11. Team identity
-
-Fill in:
-
-- **Team name:** `<TODO>`
-- **Tagline (one sentence):** `<TODO>`
-- **Tracker URL after deploy:** `<TODO>` (Vercel will give it to you)
-
-## 12. Out of scope (do not build)
-
-- Authentication / accounts.
-- Real GitHub integration.
-- A real backend / shared database.
-- Mobile responsive — desktop only is fine.
-- Multi-team support.
-- Real-time collaboration.
+**Nice to have:** account login and detailed role-based permissions. A public assessment deployment is required for assessment, though deployment is not required to complete the hackathon build itself.
 
 ## 13. Definition of done
 
-The hackathon is "done" when all 13 milestone tags are pushed to your repo and visible on the dashboard. The pitch is "done" when:
-
-- The board loads on Vercel without errors.
-- The "Copy as Prompt Context" demo works on stage.
-- 5 min pitch is rehearsed.
+- Tickets support the required fields and workflow, and IDs remain unique and are never reused.
+- AI context renders as Markdown and the one-click copy produces the specified handoff block.
+- AI tool usage is recorded, preferably as a history.
+- Bug/safe-change and urgency states are distinguishable without relying on color alone.
+- Keyboard operation, screen-reader labels, ARIA attributes, and WCAG AA contrast are addressed.
+- A unique interaction is demonstrated and design decisions are briefly documented against usability principles.
+- The deployed public assessment demo is seeded and opens with sample users, roles, tickets, and tools.
+- Login may be omitted if time does not permit it.
 
 ---
 
-*PRD version: hackathon-starter v1 · maintained by Prof. Dr. Ignacio Alvarez*
+*PRD version: solo requirements update · derived from the hackathon starter and project-owner requirements.*

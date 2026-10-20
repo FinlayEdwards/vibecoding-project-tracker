@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Bug, ShieldCheck } from 'lucide-react';
 
 /**
  * Vibecoding Project Tracker.
@@ -8,7 +9,7 @@ import { useState, useEffect, useRef } from 'react';
  * Build sequence (Phase 3):
  *   - M4  data-model    : four columns + seeded tickets.            ✓
  *   - M5  crud-modal    : "+" / edit-on-click / delete modal.        ✓
- *   - M6  tag-style     : bug vs. safe change (icon + label + colour).
+ *   - M6  tag-style     : bug vs. safe change (icon + label + colour). ✓
  *   - M7  task-owner    : assignee badge + "Hand off to..." dropdown.
  *   - M8  due-tint      : urgency states from the due date.
  *   - M9  context       : Markdown AI context field on the modal.
@@ -41,6 +42,8 @@ import { useState, useEffect, useRef } from 'react';
 
 // The four columns of the board, in render order.
 // Use these IDs everywhere — do not invent new ones.
+const findById = (list, id) => list.find((item) => item.id === id) ?? null;
+
 export const STAGES = [
   { id: 'todo',        label: 'To Do' },
   { id: 'in-progress', label: 'In Progress' },
@@ -48,10 +51,41 @@ export const STAGES = [
   { id: 'done',        label: 'Done' },
 ];
 
+// M6 tag-style: every type has an icon + label + colour, so it never relies on colour alone (DESIGN.md §2).
+// Class names are written out in full so Tailwind can find them.
 export const TASK_TYPES = [
-  { id: 'bug',         label: 'Bug' },
-  { id: 'safe_change', label: 'Safe change' },
+  {
+    id: 'bug',
+    label: 'Bug',
+    Icon: Bug,
+    text: 'text-type-bug',
+    border: 'border-type-bug',
+    stripe: 'border-l-type-bug',
+  },
+  {
+    id: 'safe_change',
+    label: 'Safe change',
+    Icon: ShieldCheck,
+    text: 'text-type-safe-change',
+    border: 'border-type-safe-change',
+    stripe: 'border-l-type-safe-change',
+  },
 ];
+
+const typeStyle = (typeId) => findById(TASK_TYPES, typeId) ?? TASK_TYPES[1];
+
+/** Icon + label badge for a ticket type; used on cards and in the modal. */
+function TypeBadge({ type }) {
+  const { label, Icon, text, border } = typeStyle(type);
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md border bg-surface-card px-2 py-0.5 text-sm font-semibold ${text} ${border}`}
+    >
+      <Icon size={16} strokeWidth={2.25} aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
 
 // Demo reference data (PRD §5: seed sample users, roles, teams and AI tools).
 export const ROLES = [
@@ -79,8 +113,6 @@ export const AI_TOOLS = [
   { id: 'tool-lovable', name: 'Lovable' },
   { id: 'tool-bolt',    name: 'Bolt' },
 ];
-
-const findById = (list, id) => list.find((item) => item.id === id) ?? null;
 
 /** 'YYYY-MM-DD' for today + `days`, so seeded due dates stay relative to the demo date. */
 function isoDateFromToday(days) {
@@ -307,9 +339,12 @@ function TaskModal({ task, onSave, onDelete, onClose }) {
       className="w-[calc(100%-2rem)] max-w-[640px] rounded-lg bg-surface-card p-0 text-text-primary"
     >
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4 p-6">
-        <h2 id="task-modal-heading" className="text-xl font-bold">
-          {heading}
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="task-modal-heading" className="text-xl font-bold">
+            {heading}
+          </h2>
+          <TypeBadge type={draft.type} />
+        </div>
 
         <Field id="task-title" label="Title (required)">
           <input
@@ -342,22 +377,36 @@ function TaskModal({ task, onSave, onDelete, onClose }) {
           />
         </Field>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field id="task-type" label="Type">
-            <select
-              id="task-type"
-              className={inputClass}
-              value={draft.type}
-              onChange={(e) => set('type')(e.target.value)}
-            >
-              {TASK_TYPES.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </Field>
+        {/* Radio cards rather than a select, so both options and their icons are always visible. */}
+        <fieldset>
+          <legend className="font-semibold">Type</legend>
+          <div className="mt-1 grid gap-3 sm:grid-cols-2">
+            {TASK_TYPES.map(({ id, label, Icon, text, border }) => {
+              const checked = draft.type === id;
+              return (
+                <label
+                  key={id}
+                  className={`flex min-h-target cursor-pointer items-center gap-2 rounded-md border-2 px-3 py-2 font-semibold has-[:focus-visible]:outline has-[:focus-visible]:outline-[3px] has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand-primary ${
+                    checked ? `${border} ${text} bg-surface-page` : 'border-surface-border text-text-primary'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="task-type"
+                    value={id}
+                    checked={checked}
+                    onChange={() => set('type')(id)}
+                    className="h-5 w-5 accent-brand-primary focus-visible:outline-none"
+                  />
+                  <Icon size={20} strokeWidth={2.25} aria-hidden="true" />
+                  {label}
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
 
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field id="task-status" label="Status">
             <select
               id="task-status"
@@ -474,9 +523,12 @@ function TaskCard({ task, onOpen }) {
   return (
     <article
       aria-labelledby={`${task.id}-title`}
-      className="relative rounded-md border border-surface-border bg-surface-card p-4 hover:border-brand-accent focus-within:border-brand-primary"
+      className={`relative rounded-md border border-l-4 border-surface-border bg-surface-card p-4 hover:ring-2 hover:ring-brand-accent ${typeStyle(task.type).stripe}`}
     >
-      <p className="font-mono text-sm text-text-muted">{task.id}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-sm text-text-muted">{task.id}</p>
+        <TypeBadge type={task.type} />
+      </div>
       <h3 id={`${task.id}-title`} className="mt-1 text-base font-semibold leading-snug">
         {/* The ::after overlay makes the whole card the click target while keeping one tab stop. */}
         <button
@@ -488,7 +540,6 @@ function TaskCard({ task, onOpen }) {
           {task.title}
         </button>
       </h3>
-      {/* TODO M6 tag-style: type stripe + icon + label. */}
       {/* TODO M8 due-tint: urgency badge from dueDate. */}
       <p className="mt-3 text-sm text-text-muted">
         <span className="sr-only">Assigned to </span>

@@ -1,5 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowRightLeft, Bug, ShieldCheck, UserX, Users } from 'lucide-react';
+import {
+  AlarmClock,
+  ArrowRightLeft,
+  Bug,
+  CalendarCheck,
+  CalendarX,
+  CircleCheck,
+  Clock,
+  OctagonAlert,
+  ShieldCheck,
+  UserX,
+  Users,
+} from 'lucide-react';
 
 /**
  * Vibecoding Project Tracker.
@@ -11,7 +23,7 @@ import { ArrowRightLeft, Bug, ShieldCheck, UserX, Users } from 'lucide-react';
  *   - M5  crud-modal    : "+" / edit-on-click / delete modal.        ✓
  *   - M6  tag-style     : bug vs. safe change (icon + label + colour). ✓
  *   - M7  task-owner    : owner avatar + "Hand off to..." + who's driving. ✓
- *   - M8  due-tint      : urgency states from the due date.
+ *   - M8  due-tint      : urgency states from the due date.             ✓
  *   - M9  context       : Markdown AI context field on the modal.
  *   - M10 copy-prompt   : "Copy as Prompt Context" handoff block.
  *   - M11 anchors       : the Deliverable Anchor Board above the Kanban.
@@ -118,7 +130,97 @@ export const AI_TOOLS = [
 function isoDateFromToday(days) {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  // Local date, not toISOString(), which would shift to UTC and can land on the wrong day.
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// M8 due-tint thresholds (PRD §10: configurable constants).
+export const DUE_WARNING_HOURS = 24;
+export const DUE_SOON_DAYS = 3;
+
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+
+// Each state has its own icon shape and text label, so urgency never relies on colour alone (DESIGN.md §2).
+const DUE_STATES = {
+  overdue: { Icon: OctagonAlert,  card: 'bg-due-overdue-tint', badge: 'bg-due-overdue' },
+  warning: { Icon: AlarmClock,    card: 'bg-due-warning-tint', badge: 'bg-due-warning' },
+  soon:    { Icon: Clock,         card: 'bg-due-soon-tint',    badge: 'bg-due-soon' },
+  safe:    { Icon: CalendarCheck, card: 'bg-surface-card',     badge: 'bg-due-safe' },
+  done:    { Icon: CircleCheck,   card: 'bg-due-neutral-tint', badge: 'bg-due-neutral' },
+  none:    { Icon: CalendarX,     card: 'bg-surface-card',     badge: null },
+};
+
+/** 'YYYY-MM-DD' → end of that day in local time; a ticket is due any time on its due date. */
+function endOfDueDay(dueDate) {
+  const [y, m, d] = dueDate.split('-').map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59, 999);
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * Derived urgency (PRD §6: not stored). Done overrides the date.
+ * Returns { state, label } where label gives the concrete time, e.g. 'Due in 5h'.
+ */
+export function dueStatus(task, now) {
+  if (task.status === 'done') return { state: 'done', label: 'Done' };
+  if (!task.dueDate) return { state: 'none', label: 'No due date' };
+
+  const remaining = endOfDueDay(task.dueDate) - now;
+  if (remaining < 0) {
+    // Rounded up, so a ticket due yesterday reads "Overdue by 1 day" even a few hours past midnight.
+    return { state: 'overdue', label: `Overdue by ${plural(Math.ceil(-remaining / DAY), 'day')}` };
+  }
+  if (remaining < DUE_WARNING_HOURS * HOUR) {
+    const hours = Math.floor(remaining / HOUR);
+    return { state: 'warning', label: hours === 0 ? 'Due within the hour' : `Due in ${hours}h` };
+  }
+  if (remaining < DUE_SOON_DAYS * DAY) {
+    return { state: 'soon', label: `Due in ${plural(Math.floor(remaining / DAY), 'day')}` };
+  }
+  return { state: 'safe', label: 'On track' };
+}
+
+/** Current time, refreshed every minute so urgency updates without the user doing anything. */
+function useNow(intervalMs = 60 * 1000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+}
+
+const formatDueDate = (dueDate) =>
+  endOfDueDay(dueDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+/** Urgency badge: filled colour + icon + concrete label, with the due date beside it. */
+function DueBadge({ task, now }) {
+  const { state, label } = dueStatus(task, now);
+  const { Icon, badge } = DUE_STATES[state];
+  return (
+    <p className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+      {badge ? (
+        <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-semibold text-white ${badge}`}>
+          <Icon size={16} strokeWidth={2.25} aria-hidden="true" />
+          {label}
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1 text-text-muted">
+          <Icon size={16} aria-hidden="true" />
+          {label}
+        </span>
+      )}
+      {task.dueDate && state !== 'done' && (
+        <span className="text-text-muted">
+          <span className="sr-only">Due date: </span>
+          <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
+        </span>
+      )}
+    </p>
+  );
 }
 
 /** Formats a counter as a ticket ID, e.g. 7 → 'TASK-007'. */
@@ -186,6 +288,20 @@ function seedTasks() {
       aiContext: '',
       aiToolId: null,
       position: 0,
+    },
+    {
+      ...base,
+      id: formatTaskId(5),
+      title: 'Fix focus not returning after closing the modal',
+      description: 'Keyboard users lose their place on the board after Esc.',
+      type: 'bug',
+      status: 'todo',
+      assignedUserId: 'u-priya',
+      assignedTeamId: null,
+      dueDate: isoDateFromToday(-2),
+      aiContext: 'Store the trigger element before opening and refocus it on close.',
+      aiToolId: 'tool-chatgpt',
+      position: 1,
     },
   ];
 }
@@ -518,12 +634,13 @@ function TaskModal({ task, onSave, onDelete, onClose }) {
   );
 }
 
-function TaskCard({ task, onOpen, onHandOff, justHandedOff }) {
+function TaskCard({ task, now, onOpen, onHandOff, justHandedOff }) {
   const assignee = assigneeLabel(task);
+  const tint = DUE_STATES[dueStatus(task, now).state].card;
   return (
     <article
       aria-labelledby={`${task.id}-title`}
-      className={`relative rounded-md border border-l-4 border-surface-border bg-surface-card p-4 hover:ring-2 hover:ring-brand-accent ${typeStyle(task.type).stripe}`}
+      className={`relative rounded-md border border-l-4 border-surface-border p-4 hover:ring-2 hover:ring-brand-accent ${tint} ${typeStyle(task.type).stripe}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-sm text-text-muted">{task.id}</p>
@@ -540,7 +657,7 @@ function TaskCard({ task, onOpen, onHandOff, justHandedOff }) {
           {task.title}
         </button>
       </h3>
-      {/* TODO M8 due-tint: urgency badge from dueDate. */}
+      <DueBadge task={task} now={now} />
       <div className="mt-3 flex items-center gap-2">
         <OwnerAvatar task={task} />
         <p className="min-w-0 text-sm font-semibold">
@@ -684,7 +801,7 @@ function DrivingStrip({ tasks }) {
   );
 }
 
-function Column({ stage, tasks, onOpenTask, onHandOff, recentHandOffId }) {
+function Column({ stage, tasks, now, onOpenTask, onHandOff, recentHandOffId }) {
   const headingId = `column-${stage.id}`;
   return (
     <section
@@ -708,6 +825,7 @@ function Column({ stage, tasks, onOpenTask, onHandOff, recentHandOffId }) {
             <li key={task.id}>
               <TaskCard
                 task={task}
+                now={now}
                 onOpen={onOpenTask}
                 onHandOff={onHandOff}
                 justHandedOff={task.id === recentHandOffId}
@@ -723,7 +841,9 @@ function Column({ stage, tasks, onOpenTask, onHandOff, recentHandOffId }) {
 export default function App() {
   const [tasks, setTasks] = useLocalStorage('vibetracker.tasks', seedTasks);
   // Monotonic counter for the next ticket ID — never decremented, so deleted IDs are never reused (PRD §6).
-  const [nextTaskNumber, setNextTaskNumber] = useLocalStorage('vibetracker.nextTaskNumber', 5);
+  const [nextTaskNumber, setNextTaskNumber] = useLocalStorage('vibetracker.nextTaskNumber', 6);
+
+  const now = useNow();
 
   // The ticket open in the modal (a blank draft when creating), or null when closed.
   const [editing, setEditing] = useState(null);
@@ -849,6 +969,7 @@ export default function App() {
               tasks={tasks
                 .filter((task) => task.status === stage.id)
                 .sort((a, b) => a.position - b.position)}
+              now={now}
               onOpenTask={openModal}
               onHandOff={handOff}
               recentHandOffId={recentHandOffId}

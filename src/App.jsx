@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bug, ShieldCheck } from 'lucide-react';
+import { ArrowRightLeft, Bug, ShieldCheck, UserX, Users } from 'lucide-react';
 
 /**
  * Vibecoding Project Tracker.
@@ -10,7 +10,7 @@ import { Bug, ShieldCheck } from 'lucide-react';
  *   - M4  data-model    : four columns + seeded tickets.            ✓
  *   - M5  crud-modal    : "+" / edit-on-click / delete modal.        ✓
  *   - M6  tag-style     : bug vs. safe change (icon + label + colour). ✓
- *   - M7  task-owner    : assignee badge + "Hand off to..." dropdown.
+ *   - M7  task-owner    : owner avatar + "Hand off to..." + who's driving. ✓
  *   - M8  due-tint      : urgency states from the due date.
  *   - M9  context       : Markdown AI context field on the modal.
  *   - M10 copy-prompt   : "Copy as Prompt Context" handoff block.
@@ -518,7 +518,7 @@ function TaskModal({ task, onSave, onDelete, onClose }) {
   );
 }
 
-function TaskCard({ task, onOpen }) {
+function TaskCard({ task, onOpen, onHandOff, justHandedOff }) {
   const assignee = assigneeLabel(task);
   return (
     <article
@@ -541,15 +541,150 @@ function TaskCard({ task, onOpen }) {
         </button>
       </h3>
       {/* TODO M8 due-tint: urgency badge from dueDate. */}
-      <p className="mt-3 text-sm text-text-muted">
-        <span className="sr-only">Assigned to </span>
-        {assignee}
-      </p>
+      <div className="mt-3 flex items-center gap-2">
+        <OwnerAvatar task={task} />
+        <p className="min-w-0 text-sm font-semibold">
+          <span className="sr-only">Assigned to </span>
+          {assignee}
+        </p>
+      </div>
+      {justHandedOff && (
+        <p className="mt-2 flex items-center gap-1 text-sm font-semibold text-brand-primary">
+          <ArrowRightLeft size={16} aria-hidden="true" />
+          Handed off just now
+        </p>
+      )}
+      <HandOff task={task} onHandOff={onHandOff} />
     </article>
   );
 }
 
-function Column({ stage, tasks, onOpenTask }) {
+/** Two-letter initials, e.g. 'Sam Rivera' → 'SR'. */
+function initials(name) {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+/**
+ * Owner avatar: initials for a person, a group icon for a team-only ticket,
+ * a dashed outline when unassigned. Decorative — the name beside it is the label.
+ */
+function OwnerAvatar({ task, size = 'h-9 w-9' }) {
+  const user = findById(USERS, task.assignedUserId);
+  const base = `flex ${size} shrink-0 items-center justify-center rounded-full font-bold`;
+  if (user) {
+    return (
+      <span aria-hidden="true" className={`${base} bg-brand-primary text-sm text-white`}>
+        {initials(user.name)}
+      </span>
+    );
+  }
+  if (task.assignedTeamId) {
+    return (
+      <span aria-hidden="true" className={`${base} border-2 border-brand-primary text-brand-primary`}>
+        <Users size={18} />
+      </span>
+    );
+  }
+  return (
+    <span aria-hidden="true" className={`${base} border-2 border-dashed border-surface-border text-text-muted`}>
+      <UserX size={18} />
+    </span>
+  );
+}
+
+/**
+ * "Hand off to…" control. Reassignment only happens on the button press, not when the
+ * select changes, so arrowing through the options can't reassign by accident (WCAG 3.2.2).
+ */
+function HandOff({ task, onHandOff }) {
+  const [targetId, setTargetId] = useState('');
+  const selectId = `${task.id}-handoff`;
+  const others = USERS.filter((u) => u.id !== task.assignedUserId);
+  return (
+    // relative z-10 lifts the controls above the card's full-size edit button.
+    <div className="relative z-10 mt-3 flex flex-wrap items-end gap-2 border-t border-surface-border pt-3">
+      <div className="min-w-0 flex-1">
+        <label htmlFor={selectId} className="block text-sm font-semibold">
+          Hand off to…
+        </label>
+        <select
+          id={selectId}
+          className="mt-1 block min-h-target w-full rounded-md border border-surface-border bg-surface-card px-2 text-sm"
+          value={targetId}
+          onChange={(e) => setTargetId(e.target.value)}
+        >
+          <option value="">Choose a person</option>
+          {others.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <button
+        type="button"
+        disabled={!targetId}
+        onClick={() => {
+          onHandOff(task.id, targetId);
+          setTargetId('');
+        }}
+        aria-label={`Hand off ${task.id}`}
+        className="min-h-target rounded-md border border-brand-primary bg-surface-card px-3 text-sm font-semibold text-brand-primary hover:bg-surface-page disabled:cursor-not-allowed disabled:border-surface-border disabled:text-text-muted"
+      >
+        Hand off
+      </button>
+    </div>
+  );
+}
+
+/** M7 optional strip: who is driving which In Progress tickets right now. */
+function DrivingStrip({ tasks }) {
+  return (
+    <section aria-labelledby="driving-heading" className="mb-6">
+      <h2 id="driving-heading" className="text-lg font-bold">
+        Who's driving
+      </h2>
+      <ul className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {USERS.map((user) => {
+          const driving = tasks.filter((t) => t.assignedUserId === user.id && t.status === 'in-progress');
+          return (
+            <li
+              key={user.id}
+              className="flex items-center gap-3 rounded-md border border-surface-border bg-surface-card p-3"
+            >
+              <OwnerAvatar task={{ assignedUserId: user.id }} />
+              <div className="min-w-0">
+                <p className="font-semibold">{user.name}</p>
+                <p className="text-sm text-text-muted">
+                  {driving.length === 0 ? (
+                    'Not driving anything in progress'
+                  ) : (
+                    <>
+                      Driving{' '}
+                      {driving.map((t, i) => (
+                        <span key={t.id}>
+                          {i > 0 && ', '}
+                          <span className="font-mono">{t.id}</span>
+                        </span>
+                      ))}
+                    </>
+                  )}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function Column({ stage, tasks, onOpenTask, onHandOff, recentHandOffId }) {
   const headingId = `column-${stage.id}`;
   return (
     <section
@@ -571,7 +706,12 @@ function Column({ stage, tasks, onOpenTask }) {
         <ul className="mt-3 flex flex-col gap-3">
           {tasks.map((task) => (
             <li key={task.id}>
-              <TaskCard task={task} onOpen={onOpenTask} />
+              <TaskCard
+                task={task}
+                onOpen={onOpenTask}
+                onHandOff={onHandOff}
+                justHandedOff={task.id === recentHandOffId}
+              />
             </li>
           ))}
         </ul>
@@ -593,11 +733,27 @@ export default function App() {
 
   // Status message shown as a toast and announced by screen readers (WCAG 4.1.3).
   const [toast, setToast] = useState('');
+  // Ticket that was just handed off; its card shows a "Handed off just now" note while the toast is up.
+  const [recentHandOffId, setRecentHandOffId] = useState(null);
   useEffect(() => {
     if (!toast) return undefined;
-    const timer = setTimeout(() => setToast(''), 5000);
+    const timer = setTimeout(() => {
+      setToast('');
+      setRecentHandOffId(null);
+    }, 5000);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  function handOff(taskId, userId) {
+    const user = findById(USERS, userId);
+    setTasks(
+      tasks.map((t) =>
+        t.id === taskId ? { ...t, assignedUserId: userId, updatedAt: new Date().toISOString() } : t,
+      ),
+    );
+    setRecentHandOffId(taskId);
+    setToast(`${taskId} handed off to ${user.name}.`);
+  }
 
   function openModal(task, trigger) {
     returnFocusRef.current = trigger;
@@ -682,6 +838,8 @@ export default function App() {
 
       {/* TODO M11 anchors: render the Anchor Board (Presentation / Demo / Report / Documentation) above the board. */}
 
+      <DrivingStrip tasks={tasks} />
+
       <main aria-label="Board">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {STAGES.map((stage) => (
@@ -692,6 +850,8 @@ export default function App() {
                 .filter((task) => task.status === stage.id)
                 .sort((a, b) => a.position - b.position)}
               onOpenTask={openModal}
+              onHandOff={handOff}
+              recentHandOffId={recentHandOffId}
             />
           ))}
         </div>

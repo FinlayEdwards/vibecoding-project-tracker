@@ -3,13 +3,20 @@ import ReactMarkdown from 'react-markdown';
 import {
   AlarmClock,
   ArrowRightLeft,
+  BookOpen,
   Bug,
   CalendarCheck,
   CalendarX,
   CircleCheck,
+  CircleDashed,
   Clock,
   Copy,
+  ExternalLink,
+  FileText,
+  MonitorPlay,
   OctagonAlert,
+  Package,
+  Presentation,
   ShieldCheck,
   UserX,
   Users,
@@ -28,7 +35,7 @@ import {
  *   - M8  due-tint      : urgency states from the due date.             ✓
  *   - M9  task-context  : Markdown context + preview, AI tool, history.  ✓
  *   - M10 copy-context  : "Copy context" handoff block on cards + modal. ✓
- *   - M11 anchors       : the Deliverable Anchor Board above the Kanban.
+ *   - M11 project-deliverables : Deliverable Anchor Board + ticket links. ✓
  *   - M12 secret-sauce  : drag-and-drop with column ordering.
  *
  * Search the file for `TODO M<n>` to find the right hook for each milestone.
@@ -139,6 +146,15 @@ export const AI_TOOLS = [
   { id: 'tool-bolt',    name: 'Bolt' },
   { id: 'tool-replit',  name: 'Replit' },
   { id: 'tool-other',   name: 'Other' },
+];
+
+// M11 project-deliverables: the four anchor slots (PRD §8 — an initial proposal, kept extensible).
+// Tickets link to one through `deliverableId`; each slot's URL lives in localStorage.
+export const DELIVERABLES = [
+  { id: 'presentation',  name: 'Presentation',  Icon: Presentation },
+  { id: 'demo',          name: 'Demo',          Icon: MonitorPlay },
+  { id: 'report',        name: 'Report',        Icon: FileText },
+  { id: 'documentation', name: 'Documentation', Icon: BookOpen },
 ];
 
 /** 'YYYY-MM-DD' for today + `days`, so seeded due dates stay relative to the demo date. */
@@ -266,6 +282,7 @@ function seedTasks() {
       assignedTeamId: 'team-frontend',
       dueDate: isoDateFromToday(-1),
       aiContext: 'Built with Claude from the M4 brief. Uses `STAGES` for column order.',
+      deliverableId: 'demo',
       aiToolId: 'tool-claude',
       position: 0,
       completedAt: now,
@@ -322,6 +339,7 @@ function seedTasks() {
       assignedUserId: null,
       assignedTeamId: 'team-design',
       dueDate: isoDateFromToday(7),
+      deliverableId: 'report',
       aiContext: '',
       aiToolId: null,
       position: 0,
@@ -400,6 +418,8 @@ export function buildContextBlock(task) {
     `- **Due:** ${task.dueDate ?? 'No due date'}`,
     `- **AI tool used so far:** ${tool}`,
   ];
+  const deliverable = findById(DELIVERABLES, task.deliverableId);
+  if (deliverable) lines.push(`- **Deliverable:** ${deliverable.name}`);
   if (task.description?.trim()) lines.push('', '## Description', task.description.trim());
   lines.push('', '## Context', task.aiContext?.trim() || '_No context recorded yet._');
   return lines.join('\n');
@@ -841,7 +861,17 @@ function TaskModal({ task, now, onSave, onDelete, onClose }) {
 
         <ContextSection draft={draft} setDraft={setDraft} now={now} />
 
-        {/* TODO M11 anchors: deliverable select once deliverables exist. */}
+        <div className="max-w-sm">
+          <Field id="task-deliverable" label="Deliverable">
+            <OptionalSelect
+              id="task-deliverable"
+              value={draft.deliverableId}
+              onChange={set('deliverableId')}
+              options={DELIVERABLES}
+              emptyLabel="Not linked"
+            />
+          </Field>
+        </div>
 
         {confirmingDelete ? (
           <div
@@ -915,6 +945,12 @@ function TaskCard({ task, now, onOpen, onHandOff, onCopied, justHandedOff }) {
           {assignee}
         </p>
       </div>
+      {task.deliverableId && (
+        <p className="mt-2 flex items-center gap-1 text-sm text-text-muted">
+          <Package size={16} aria-hidden="true" />
+          Deliverable: {findById(DELIVERABLES, task.deliverableId)?.name}
+        </p>
+      )}
       {justHandedOff && (
         <p className="mt-2 flex items-center gap-1 text-sm font-semibold text-brand-primary">
           <ArrowRightLeft size={16} aria-hidden="true" />
@@ -1010,6 +1046,139 @@ function HandOff({ task, onHandOff }) {
         Hand off
       </button>
     </div>
+  );
+}
+
+/** Accepts only absolute http(s) URLs, so a saved link always opens somewhere real. */
+function isValidUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** One deliverable slot: URL field, empty/filled status, open link and linked-ticket count. */
+function AnchorCard({ deliverable, url, ticketCount, onSave }) {
+  const { id, name, Icon } = deliverable;
+  const [value, setValue] = useState(url);
+  const [error, setError] = useState('');
+  const inputId = `anchor-${id}`;
+  const filled = Boolean(url);
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const trimmed = value.trim();
+    if (trimmed && !isValidUrl(trimmed)) {
+      setError('Enter a full link starting with https://');
+      return;
+    }
+    setError('');
+    setValue(trimmed);
+    onSave(id, trimmed);
+  }
+
+  return (
+    <li className="flex flex-col rounded-md border border-surface-border bg-surface-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-2 font-bold">
+          <Icon size={20} aria-hidden="true" />
+          {name}
+        </h3>
+        {/* Status uses icon shape + text, not just a coloured dot (WCAG 1.4.1). */}
+        {filled ? (
+          <span className="inline-flex items-center gap-1 text-sm font-semibold text-due-safe">
+            <CircleCheck size={16} aria-hidden="true" />
+            Link added
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-sm text-text-muted">
+            <CircleDashed size={16} aria-hidden="true" />
+            No link yet
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-sm text-text-muted">
+        {ticketCount === 0 ? 'No tickets linked' : `${plural(ticketCount, 'ticket')} linked`}
+      </p>
+
+      <form onSubmit={handleSubmit} noValidate className="mt-3 flex flex-col gap-2">
+        <label htmlFor={inputId} className="text-sm font-semibold">
+          {name} link
+        </label>
+        <div className="flex gap-2">
+          <input
+            id={inputId}
+            type="url"
+            inputMode="url"
+            placeholder="https://"
+            className="block min-h-target w-full min-w-0 rounded-md border border-surface-border bg-surface-card px-3 text-sm"
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              if (error) setError('');
+            }}
+            aria-invalid={error ? 'true' : undefined}
+            aria-describedby={error ? `${inputId}-error` : undefined}
+          />
+          <button
+            type="submit"
+            aria-label={`Save ${name} link`}
+            className="min-h-target shrink-0 rounded-md bg-brand-primary px-3 text-sm font-semibold text-white hover:bg-brand-accent"
+          >
+            Save
+          </button>
+        </div>
+        {error && (
+          <p id={`${inputId}-error`} className="text-sm font-semibold text-due-overdue">
+            <span aria-hidden="true">⚠ </span>
+            {error}
+          </p>
+        )}
+      </form>
+
+      {filled && (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-flex items-center gap-1 self-start text-sm font-semibold text-brand-accent underline"
+        >
+          Open {name}
+          <ExternalLink size={14} aria-hidden="true" />
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      )}
+    </li>
+  );
+}
+
+/** M11: Deliverable Anchor Board, pinned above the Kanban. */
+function AnchorBoard({ anchors, tasks, onSave }) {
+  const done = DELIVERABLES.filter((d) => anchors[d.id]).length;
+  return (
+    <section aria-labelledby="deliverables-heading" className="mb-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="deliverables-heading" className="text-lg font-bold">
+          Deliverables
+        </h2>
+        <p className="text-sm text-text-muted">
+          {done} of {DELIVERABLES.length} linked
+        </p>
+      </div>
+      <ul className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {DELIVERABLES.map((d) => (
+          <AnchorCard
+            key={d.id}
+            deliverable={d}
+            url={anchors[d.id] ?? ''}
+            ticketCount={tasks.filter((t) => t.deliverableId === d.id).length}
+            onSave={onSave}
+          />
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -1188,8 +1357,14 @@ export default function App() {
     closeModal();
   }
 
-  // TODO M11 anchors:
-  //   const [anchors, setAnchors] = useLocalStorage('vibetracker.anchors', [...]);
+  // M11: deliverable id → URL ('' when empty).
+  const [anchors, setAnchors] = useLocalStorage('vibetracker.anchors', {});
+
+  function saveAnchor(id, url) {
+    setAnchors({ ...anchors, [id]: url });
+    const { name } = findById(DELIVERABLES, id);
+    setToast(url ? `${name} link saved.` : `${name} link removed.`);
+  }
 
   return (
     <div className="min-h-screen p-4 sm:p-6">
@@ -1213,7 +1388,7 @@ export default function App() {
         </button>
       </header>
 
-      {/* TODO M11 anchors: render the Anchor Board (Presentation / Demo / Report / Documentation) above the board. */}
+      <AnchorBoard anchors={anchors} tasks={tasks} onSave={saveAnchor} />
 
       <DrivingStrip tasks={tasks} />
 

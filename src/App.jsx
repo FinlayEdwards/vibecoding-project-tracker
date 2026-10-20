@@ -8,6 +8,7 @@ import {
   CalendarX,
   CircleCheck,
   Clock,
+  Copy,
   OctagonAlert,
   ShieldCheck,
   UserX,
@@ -26,7 +27,7 @@ import {
  *   - M7  task-owner    : owner avatar + "Hand off to..." + who's driving. ✓
  *   - M8  due-tint      : urgency states from the due date.             ✓
  *   - M9  task-context  : Markdown context + preview, AI tool, history.  ✓
- *   - M10 copy-prompt   : "Copy as Prompt Context" handoff block.
+ *   - M10 copy-context  : "Copy context" handoff block on cards + modal. ✓
  *   - M11 anchors       : the Deliverable Anchor Board above the Kanban.
  *   - M12 secret-sauce  : drag-and-drop with column ordering.
  *
@@ -380,6 +381,72 @@ function assigneeLabel(task) {
   return 'Unassigned';
 }
 
+/**
+ * M10 copy-context: the paste-ready handoff block (PRD §5) — ticket ID, title, status,
+ * AI tool and the raw Markdown context, framed so it reads as a briefing in a new AI chat.
+ */
+export function buildContextBlock(task) {
+  const id = task.id ?? 'New ticket';
+  const status = findById(STAGES, task.status)?.label ?? task.status;
+  const tool = findById(AI_TOOLS, task.aiToolId)?.name ?? 'None recorded';
+  const lines = [
+    `# ${id}: ${task.title.trim() || 'Untitled ticket'}`,
+    '',
+    "I'm continuing work on this ticket from a previous AI session. Use the context below to pick it up.",
+    '',
+    `- **Status:** ${status}`,
+    `- **Type:** ${typeStyle(task.type).label}`,
+    `- **Assigned to:** ${assigneeLabel(task)}`,
+    `- **Due:** ${task.dueDate ?? 'No due date'}`,
+    `- **AI tool used so far:** ${tool}`,
+  ];
+  if (task.description?.trim()) lines.push('', '## Description', task.description.trim());
+  lines.push('', '## Context', task.aiContext?.trim() || '_No context recorded yet._');
+  return lines.join('\n');
+}
+
+/** Clipboard write with a fallback for browsers/contexts without the async Clipboard API. */
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand('copy');
+  area.remove();
+  if (!ok) throw new Error('Copy failed');
+}
+
+/** "Copy context" button; reports a success or failure message through onResult. */
+function CopyContextButton({ task, onResult, className = '' }) {
+  const id = task.id ?? 'new ticket';
+  async function handleClick() {
+    try {
+      await copyText(buildContextBlock(task));
+      onResult(`Copied ${task.id ?? 'ticket'} context. Paste it into your AI tool.`);
+    } catch {
+      onResult(`Couldn't copy ${task.id ?? 'the'} context. Check clipboard permissions and try again.`);
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      aria-label={`Copy context for ${id}`}
+      className={`inline-flex min-h-target items-center gap-2 rounded-md border border-brand-primary bg-surface-card px-3 text-sm font-semibold text-brand-primary hover:bg-surface-page ${className}`}
+    >
+      <Copy size={16} aria-hidden="true" />
+      Copy context
+    </button>
+  );
+}
+
 // Starting structure for a new ticket's context, so every briefing answers the same questions.
 const CONTEXT_TEMPLATE = [
   '## Background',
@@ -522,16 +589,29 @@ const markdownComponents = {
  */
 function ContextSection({ draft, setDraft, now }) {
   const history = [...(draft.aiUsageLog ?? [])].reverse().slice(0, 5);
+  // The board's toast sits behind the modal's inert backdrop, so the modal announces copies itself.
+  const [copyMessage, setCopyMessage] = useState('');
+  useEffect(() => {
+    if (!copyMessage) return undefined;
+    const timer = setTimeout(() => setCopyMessage(''), 5000);
+    return () => clearTimeout(timer);
+  }, [copyMessage]);
   return (
     <section aria-labelledby="context-heading" className="rounded-md border border-surface-border p-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 id="context-heading" className="text-lg font-bold">
-          Context
-        </h3>
-        <p id="task-context-updated" className="text-sm text-text-muted">
-          {draft.contextUpdatedAt ? `Last updated ${timeAgo(draft.contextUpdatedAt, now)}` : 'Not edited yet'}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 id="context-heading" className="text-lg font-bold">
+            Context
+          </h3>
+          <p id="task-context-updated" className="text-sm text-text-muted">
+            {draft.contextUpdatedAt ? `Last updated ${timeAgo(draft.contextUpdatedAt, now)}` : 'Not edited yet'}
+          </p>
+        </div>
+        <CopyContextButton task={draft} onResult={setCopyMessage} />
       </div>
+      <p role="status" className="mt-2 text-sm font-semibold text-brand-primary empty:hidden">
+        {copyMessage}
+      </p>
 
       <div className="mt-2 grid gap-4 md:grid-cols-2">
         <div>
@@ -804,7 +884,7 @@ function TaskModal({ task, now, onSave, onDelete, onClose }) {
   );
 }
 
-function TaskCard({ task, now, onOpen, onHandOff, justHandedOff }) {
+function TaskCard({ task, now, onOpen, onHandOff, onCopied, justHandedOff }) {
   const assignee = assigneeLabel(task);
   const tint = DUE_STATES[dueStatus(task, now).state].card;
   return (
@@ -841,6 +921,10 @@ function TaskCard({ task, now, onOpen, onHandOff, justHandedOff }) {
           Handed off just now
         </p>
       )}
+      {/* relative z-10 lifts the button above the card's full-size edit button. */}
+      <div className="relative z-10 mt-3">
+        <CopyContextButton task={task} onResult={onCopied} />
+      </div>
       <HandOff task={task} onHandOff={onHandOff} />
     </article>
   );
@@ -971,7 +1055,7 @@ function DrivingStrip({ tasks }) {
   );
 }
 
-function Column({ stage, tasks, now, onOpenTask, onHandOff, recentHandOffId }) {
+function Column({ stage, tasks, now, onOpenTask, onHandOff, onCopied, recentHandOffId }) {
   const headingId = `column-${stage.id}`;
   return (
     <section
@@ -998,6 +1082,7 @@ function Column({ stage, tasks, now, onOpenTask, onHandOff, recentHandOffId }) {
                 now={now}
                 onOpen={onOpenTask}
                 onHandOff={onHandOff}
+                onCopied={onCopied}
                 justHandedOff={task.id === recentHandOffId}
               />
             </li>
@@ -1144,6 +1229,7 @@ export default function App() {
               now={now}
               onOpenTask={openModal}
               onHandOff={handOff}
+              onCopied={setToast}
               recentHandOffId={recentHandOffId}
             />
           ))}

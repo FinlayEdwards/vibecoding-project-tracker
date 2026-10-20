@@ -18,6 +18,16 @@ body {
   outline-offset: 2px;
 }
 
+/* DESIGN.md §4: modal backdrop — slate-900 at 60% */
+dialog::backdrop {
+  background-color: rgb(15 23 42 / 0.6);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* DESIGN.md §4: disable motion for users who ask for it */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

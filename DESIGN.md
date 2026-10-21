@@ -24,7 +24,7 @@ Anti-references, explicitly **not**:
 
 ## 2. Color palette
 
-Light mode only (DESIGN §7). One rule throughout: **colour reinforces meaning, it never carries it alone** (WCAG 1.4.1 Use of Color). Every coloured state also has an icon and a text label.
+Light and dark themes share the same tokens (see "Dark theme" below). One rule throughout: **colour reinforces meaning, it never carries it alone** (WCAG 1.4.1 Use of Color). Every coloured state also has an icon and a text label.
 
 ### Brand
 
@@ -76,6 +76,25 @@ Why it is built this way:
 - **Tints are pale (≈97% lightness)** so body text on tinted cards still exceeds 15:1.
 - **Done overrides everything** with a neutral grey, so finished work stops shouting.
 
+### Dark theme
+
+Added after M12. Some low-vision users (photophobia, glare sensitivity, some cataract and migraine conditions) find a dark interface much easier to use; others find light-on-dark harder to read (astigmatism halation). So the theme is a **user choice, defaulting to the OS setting**: System / Light / Dark toggle in the header, saved per browser, applied before first paint so there is no flash.
+
+Every token is a CSS variable (`src/index.css`), so components use the same class names in both themes. Dark values are lighter, desaturated tones on slate — never pure black, and never the light-mode hues on a dark background, which would fail contrast.
+
+| Token | Dark hex | Contrast (dark) |
+|---|---|---|
+| `surface-page` / `surface-card` | `#0F172A` / `#1E293B` | — |
+| `surface-border` | `#94A3B8` | 5.7:1 on card |
+| `text-primary` / `text-muted` | `#F1F5F9` / `#CBD5E1` | 13.4:1 / 9.9:1 on card |
+| `brand-primary` / `brand-accent` | `#A5B4FC` / `#C7D2FE` | 7.3:1 / 9.8:1 on card |
+| `on-fill` (text on filled colours) | `#0F172A` | ≥ 9:1 on every badge/button |
+| `type-safe-change` / `type-bug` | `#5EEAD4` / `#F9A8D4` | 9.9:1 / 8.1:1 on card |
+| `due-overdue` / `-warning` / `-soon` / `-safe` / `-neutral` | `#FCA5A5` / `#FDBA74` / `#FDE047` / `#86EFAC` / `#CBD5E1` | ≥ 9.4:1 with `on-fill` text |
+| Tints: overdue / warning / soon / done | `#3B1A22` / `#3A2416` / `#33300F` / `#162032` | text ≥ 12:1, muted ≥ 9:1 |
+
+Every dark pairing meets **AAA** (7:1). The `on-fill` token is the one structural change: filled badges and buttons use white text in light mode and near-black text in dark mode, because the dark-mode fills are light.
+
 ## 3. Typography
 
 | Role | Font | Why |
@@ -104,9 +123,13 @@ All sizes are in `rem`, so the layout respects the user's browser font-size sett
 - **Modal:** Centered, max-width 640px, `slate-900` backdrop at 60%; uses `role="dialog"` + `aria-modal`, traps focus, closes on Esc, and returns focus to the card that opened it.
 - **Forms:** Every input has a visible `<label>` (no placeholder-only labels); errors appear as text next to the field with an icon and are linked via `aria-describedby`.
 - **Empty states:** Dashed `surface-border` outline, muted text, encouraging tone, plus the "+" action so the next step is obvious.
-- **Drag affordance:** Drag-and-drop is the unique interaction (PRD §9), shown by a `grip-vertical` handle. Dragging is **never the only way**: every card also has a "Move to…" status select and Move up/down buttons, so it works with a keyboard, a switch device or a single pointer (WCAG 2.5.7 Dragging Movements). Moves are announced via an `aria-live` region.
+- **Drag affordance:** Drag-and-drop is the unique interaction (PRD §9), shown by a `grip-vertical` handle. Dragging is **never the only way**: every card also has a joined ← ↑ ↓ → button group (previous column, up, down, next column), so it works with a keyboard, a switch device or a single pointer (WCAG 2.5.7 Dragging Movements). Focus follows the card when it changes column, and moves are announced via an `aria-live` region.
 - **Motion:** Only a 200ms fade on toasts and drag lift; all motion is disabled under `prefers-reduced-motion` (WCAG 2.3.3).
-- **Toasts:** Rendered in an `aria-live="polite"` region so screen readers announce them (WCAG 4.1.3 Status Messages); they stay at least 5 seconds and pause on hover/focus.
+- **Toasts:** Rendered in an `aria-live="polite"` region so screen readers announce them (WCAG 4.1.3 Status Messages); they stay at least 5 seconds and pause on hover/focus. Each has a 44px "Dismiss" button.
+- **Cards stay calm:** "Hand off" is a disclosure button (`aria-expanded`) that reveals the person picker, rather than a form on every card; focus moves into it on open and back to the button after the hand-off.
+- **Collapsible cards:** a chevron (`aria-expanded`, "Show/Hide details for TASK-001") shrinks a card to its title; "Collapse all / Expand all" sits above the board and as an icon button in each column header. The tint and type stripe stay on collapsed cards, and the choice is saved per browser.
+- **Skip link:** "Skip to main content" is the first Tab stop, hidden until focused (WCAG 2.4.1 Bypass Blocks).
+- **Forced colours:** filled badges and the toast carry a transparent border so Windows High Contrast still draws their edges; the decorative foil outline is turned off there.
 
 ## 5. Voice / microcopy
 
@@ -130,7 +153,7 @@ Plain, specific and calm. Say what happened and what to do next; no jokes that a
 
 To keep design tight, the following are explicitly not part of `design-done`:
 
-- A dark mode toggle. Pick one mode and ship it. (Light mode chosen; the OS high-contrast / forced-colors mode is respected by not removing system outlines.)
+- ~~A dark mode toggle.~~ Originally out of scope; added after M12 as an accessibility feature (see §2 "Dark theme" and D15). The OS high-contrast / forced-colors mode is also respected by not removing system outlines.
 - Multiple themes. One brand, applied consistently.
 - Animations beyond a 200 ms fade on toast notifications.
 - A custom icon set. Use [Lucide icons](https://lucide.dev) (`lucide-react`); decorative icons get `aria-hidden="true"` because the text label next to them carries the meaning.
@@ -155,6 +178,7 @@ Each decision is tied to a usability principle (Nielsen's 10 heuristics) and/or 
 | D12 | Delete confirmation names the ticket and states consequences | Nielsen #5 Error prevention; #3 User control and freedom |
 | D13 | Respect `prefers-reduced-motion` | WCAG 2.3.3 Animation from Interactions (vestibular disorders) |
 | D14 | Visible labels on every form field; errors in text | WCAG 3.3.1 Error Identification, 3.3.2 Labels or Instructions; Nielsen #9 Help users recover from errors |
+| D15 | Dark theme as a user choice defaulting to the OS setting, AAA contrast in both themes | WCAG 1.4.3 / 1.4.6 Contrast; Nielsen #7 Flexibility and efficiency of use; Nielsen #3 User control and freedom |
 
 ---
 

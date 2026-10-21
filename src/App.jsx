@@ -1,10 +1,33 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCorners,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
   AlarmClock,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
   ArrowRightLeft,
+  ArrowUp,
   BookOpen,
   Bug,
+  ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
   CalendarCheck,
   CalendarX,
   CircleCheck,
@@ -13,13 +36,20 @@ import {
   Copy,
   ExternalLink,
   FileText,
+  GripVertical,
+  LayoutGrid,
   MonitorPlay,
   OctagonAlert,
   Package,
+  Plus,
   Presentation,
   ShieldCheck,
+  Monitor,
+  Moon,
+  Sun,
   UserX,
   Users,
+  X,
 } from 'lucide-react';
 
 /**
@@ -36,7 +66,7 @@ import {
  *   - M9  task-context  : Markdown context + preview, AI tool, history.  ✓
  *   - M10 copy-context  : "Copy context" handoff block on cards + modal. ✓
  *   - M11 project-deliverables : Deliverable Anchor Board + ticket links. ✓
- *   - M12 secret-sauce  : drag-and-drop with column ordering.
+ *   - M12 secret-sauce  : accessible drag-and-drop (pointer, keyboard, screen reader). ✓
  *
  * Search the file for `TODO M<n>` to find the right hook for each milestone.
  */
@@ -234,7 +264,7 @@ function DueBadge({ task, now }) {
   return (
     <p className="mt-3 flex flex-wrap items-center gap-2 text-sm">
       {badge ? (
-        <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-semibold text-white ${badge}`}>
+        <span className={`inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-0.5 font-semibold text-on-fill ${badge}`}>
           <Icon size={16} strokeWidth={2.25} aria-hidden="true" />
           {label}
         </span>
@@ -531,7 +561,7 @@ const inputClass =
   'mt-1 block min-h-target w-full rounded-md border border-surface-border bg-surface-card px-3 py-2 text-base text-text-primary';
 
 const buttonPrimary =
-  'min-h-target rounded-md bg-brand-primary px-4 py-2 font-semibold text-white hover:bg-brand-accent';
+  'min-h-target rounded-md bg-brand-primary px-4 py-2 font-semibold text-on-fill hover:bg-brand-accent';
 const buttonSecondary =
   'min-h-target rounded-md border border-surface-border bg-surface-card px-4 py-2 font-semibold text-text-primary hover:border-brand-accent hover:text-brand-accent';
 const buttonDanger =
@@ -746,10 +776,15 @@ function TaskModal({ task, now, onSave, onDelete, onClose }) {
     >
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="task-modal-heading" className="text-xl font-bold">
-            {heading}
-          </h2>
-          <TypeBadge type={draft.type} />
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 id="task-modal-heading" className="text-xl font-bold">
+              {heading}
+            </h2>
+            <TypeBadge type={draft.type} />
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close without saving" className={iconButton}>
+            <X size={20} aria-hidden="true" />
+          </button>
         </div>
 
         <Field id="task-title" label="Title (required)">
@@ -914,55 +949,232 @@ function TaskModal({ task, now, onSave, onDelete, onClose }) {
   );
 }
 
-function TaskCard({ task, now, onOpen, onHandOff, onCopied, justHandedOff }) {
+const iconButton =
+  'inline-flex min-h-target min-w-target items-center justify-center rounded-md border border-surface-border bg-surface-card text-text-primary hover:border-brand-accent hover:text-brand-accent disabled:cursor-not-allowed disabled:opacity-40';
+
+/**
+ * M12 secret-sauce: a draggable card. Dragging starts only from the grip handle, which
+ * also works from the keyboard (Space to lift, arrows to move, Space to drop, Esc to cancel).
+ */
+function SortableTaskCard(props) {
+  const { task } = props;
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: task.id, data: { type: 'task' } });
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={isDragging ? 'relative z-20' : undefined}
+    >
+      <TaskCard
+        {...props}
+        isDragging={isDragging}
+        dragHandle={
+          <button
+            type="button"
+            ref={setActivatorNodeRef}
+            {...attributes}
+            {...listeners}
+            aria-label={`Move ${task.id}`}
+            className={`${iconButton} relative z-10 cursor-grab touch-none active:cursor-grabbing`}
+          >
+            <GripVertical size={20} aria-hidden="true" />
+          </button>
+        }
+      />
+    </li>
+  );
+}
+
+/**
+ * Silver foil outline (inspired by React Bits' Holo Card): feeds the pointer position into
+ * CSS variables that steer the foil gradient and glare in index.css. Written straight
+ * to the element's style so pointer moves don't re-render React.
+ */
+function trackHolo(e) {
+  const el = e.currentTarget;
+  const rect = el.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width;
+  const y = (e.clientY - rect.top) / rect.height;
+  el.style.setProperty('--holo-x', `${x * 100}%`);
+  el.style.setProperty('--holo-y', `${y * 100}%`);
+  el.style.setProperty('--holo-angle', `${(x + y) * 180}deg`);
+}
+
+function TaskCard({ task, now, onOpen, onHandOff, onCopied, onMove, onMoveColumn, justHandedOff, isFirst, isLast, isDragging, dragHandle, collapsed, onToggleCollapsed }) {
   const assignee = assigneeLabel(task);
   const tint = DUE_STATES[dueStatus(task, now).state].card;
+  const stageIndex = STAGES.findIndex((s) => s.id === task.status);
+  const prevStage = STAGES[stageIndex - 1];
+  const nextStage = STAGES[stageIndex + 1];
+  // The hand-off form is tucked behind a disclosure button so cards stay calm (DESIGN.md §1).
+  const [handOffOpen, setHandOffOpen] = useState(false);
+  const handOffButtonRef = useRef(null);
+  const handOffPanelId = `${task.id}-handoff-panel`;
+  const detailsId = `${task.id}-details`;
+  // Collapsed cards show only the title; the chevron is the same size in both states so it never jumps.
+  const collapseToggle = (
+    <button
+      type="button"
+      aria-expanded={!collapsed}
+      aria-controls={detailsId}
+      aria-label={`${collapsed ? 'Show' : 'Hide'} details for ${task.id}`}
+      title={collapsed ? 'Show details' : 'Hide details'}
+      onClick={() => onToggleCollapsed(task.id)}
+      className={`${iconButton} relative z-10 shrink-0`}
+    >
+      <ChevronDown
+        size={20}
+        aria-hidden="true"
+        className={`motion-safe:transition-transform ${collapsed ? '-rotate-90' : ''}`}
+      />
+    </button>
+  );
+  const title = (
+    <h3 id={`${task.id}-title`} className={`${collapsed ? 'min-w-0 flex-1' : 'mt-2'} text-base font-semibold leading-snug`}>
+      {/* The ::after overlay makes the whole card the click target while keeping one tab stop. */}
+      <button
+        type="button"
+        onClick={(e) => onOpen(task, e.currentTarget)}
+        aria-label={`Edit ${task.id}: ${task.title}`}
+        className="text-left after:absolute after:inset-0 after:rounded-md focus-visible:outline-none focus-visible:after:outline focus-visible:after:outline-[3px] focus-visible:after:outline-offset-2 focus-visible:after:outline-brand-primary"
+      >
+        {task.title}
+      </button>
+    </h3>
+  );
   return (
     <article
       aria-labelledby={`${task.id}-title`}
-      className={`relative rounded-md border border-l-4 border-surface-border p-4 hover:ring-2 hover:ring-brand-accent ${tint} ${typeStyle(task.type).stripe}`}
+      onPointerMove={trackHolo}
+      data-dragging={isDragging || undefined}
+      className={`holo-outline relative rounded-lg border border-l-4 border-surface-border shadow-sm ${collapsed ? 'p-2' : 'p-4'} ${tint} ${typeStyle(task.type).stripe} ${
+        isDragging ? 'shadow-xl motion-safe:rotate-1' : ''
+      }`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-sm text-text-muted">{task.id}</p>
-        <TypeBadge type={task.type} />
-      </div>
-      <h3 id={`${task.id}-title`} className="mt-1 text-base font-semibold leading-snug">
-        {/* The ::after overlay makes the whole card the click target while keeping one tab stop. */}
-        <button
-          type="button"
-          onClick={(e) => onOpen(task, e.currentTarget)}
-          aria-label={`Edit ${task.id}: ${task.title}`}
-          className="text-left after:absolute after:inset-0 after:rounded-md focus-visible:outline-none focus-visible:after:outline focus-visible:after:outline-[3px] focus-visible:after:outline-offset-2 focus-visible:after:outline-brand-primary"
-        >
-          {task.title}
-        </button>
-      </h3>
-      <DueBadge task={task} now={now} />
-      <div className="mt-3 flex items-center gap-2">
-        <OwnerAvatar task={task} />
-        <p className="min-w-0 text-sm font-semibold">
-          <span className="sr-only">Assigned to </span>
-          {assignee}
-        </p>
-      </div>
-      {task.deliverableId && (
-        <p className="mt-2 flex items-center gap-1 text-sm text-text-muted">
-          <Package size={16} aria-hidden="true" />
-          Deliverable: {findById(DELIVERABLES, task.deliverableId)?.name}
-        </p>
+      {collapsed ? (
+        <div className="flex items-center gap-2">
+          {dragHandle}
+          {title}
+          {collapseToggle}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {dragHandle}
+              <p className="font-mono text-sm text-text-muted">{task.id}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <TypeBadge type={task.type} />
+              {collapseToggle}
+            </div>
+          </div>
+          {title}
+        </>
       )}
-      {justHandedOff && (
-        <p className="mt-2 flex items-center gap-1 text-sm font-semibold text-brand-primary">
-          <ArrowRightLeft size={16} aria-hidden="true" />
-          Handed off just now
-        </p>
-      )}
-      {/* relative z-10 lifts the button above the card's full-size edit button. */}
-      <div className="relative z-10 mt-3">
-        <CopyContextButton task={task} onResult={onCopied} />
+      <div id={detailsId} hidden={collapsed}>
+        <DueBadge task={task} now={now} />
+        <div className="mt-3 flex items-center gap-2">
+          <OwnerAvatar task={task} />
+          <p className="min-w-0 text-sm font-semibold">
+            <span className="sr-only">Assigned to </span>
+            {assignee}
+          </p>
+        </div>
+        {task.deliverableId && (
+          <p className="mt-2 flex items-center gap-1 text-sm text-text-muted">
+            <Package size={16} aria-hidden="true" />
+            Deliverable: {findById(DELIVERABLES, task.deliverableId)?.name}
+          </p>
+        )}
+        {justHandedOff && (
+          <p className="mt-2 flex items-center gap-1 text-sm font-semibold text-brand-primary">
+            <ArrowRightLeft size={16} aria-hidden="true" />
+            Handed off just now
+          </p>
+        )}
+        {/* relative z-10 lifts the controls above the card's full-size edit button. */}
+        <div className="relative z-10 mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-surface-border pt-3">
+          <div className="flex flex-wrap gap-2">
+            <CopyContextButton task={task} onResult={onCopied} />
+            <button
+              ref={handOffButtonRef}
+              type="button"
+              aria-expanded={handOffOpen}
+              aria-controls={handOffPanelId}
+              onClick={() => setHandOffOpen(!handOffOpen)}
+              className={`inline-flex min-h-target items-center gap-2 rounded-md border px-3 text-sm font-semibold hover:border-brand-accent hover:text-brand-accent ${
+                handOffOpen
+                  ? 'border-brand-primary bg-surface-page text-brand-primary'
+                  : 'border-surface-border bg-surface-card text-text-primary'
+              }`}
+            >
+              <ArrowRightLeft size={16} aria-hidden="true" />
+              Hand off
+              <span className="sr-only"> {task.id}</span>
+            </button>
+          </div>
+          {/* Single-pointer alternative to dragging, across columns too (WCAG 2.5.7). */}
+          <div role="group" aria-label={`Move ${task.id}`} className="flex">
+            <MoveButton
+              label={prevStage ? `Move ${task.id} to ${prevStage.label}` : `${task.id} is in the first column`}
+              disabled={!prevStage}
+              onClick={() => onMoveColumn(task.id, prevStage.id)}
+              Icon={ArrowLeft}
+              className="rounded-l-md"
+            />
+            <MoveButton
+              label={`Move ${task.id} up`}
+              disabled={isFirst}
+              onClick={() => onMove(task.id, -1)}
+              Icon={ArrowUp}
+            />
+            <MoveButton
+              label={`Move ${task.id} down`}
+              disabled={isLast}
+              onClick={() => onMove(task.id, 1)}
+              Icon={ArrowDown}
+            />
+            <MoveButton
+              label={nextStage ? `Move ${task.id} to ${nextStage.label}` : `${task.id} is in the last column`}
+              disabled={!nextStage}
+              onClick={() => onMoveColumn(task.id, nextStage.id)}
+              Icon={ArrowRight}
+              className="rounded-r-md"
+            />
+          </div>
+        </div>
+        {handOffOpen && (
+          <div id={handOffPanelId} className="relative z-10 mt-3">
+            <HandOff
+              task={task}
+              onHandOff={(...args) => {
+                onHandOff(...args);
+                setHandOffOpen(false);
+                handOffButtonRef.current?.focus();
+              }}
+            />
+          </div>
+        )}
       </div>
-      <HandOff task={task} onHandOff={onHandOff} />
     </article>
+  );
+}
+
+/** One segment of the card's joined move-button group; the label also shows as a tooltip. */
+function MoveButton({ label, disabled, onClick, Icon, className = '' }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={`-ml-px inline-flex min-h-target min-w-target items-center justify-center border border-surface-border bg-surface-card text-text-primary first:ml-0 hover:z-10 hover:border-brand-accent hover:text-brand-accent focus-visible:z-10 disabled:cursor-not-allowed disabled:text-text-muted disabled:opacity-50 ${className}`}
+    >
+      <Icon size={18} aria-hidden="true" />
+    </button>
   );
 }
 
@@ -985,7 +1197,7 @@ function OwnerAvatar({ task, size = 'h-9 w-9' }) {
   const base = `flex ${size} shrink-0 items-center justify-center rounded-full font-bold`;
   if (user) {
     return (
-      <span aria-hidden="true" className={`${base} bg-brand-primary text-sm text-white`}>
+      <span aria-hidden="true" className={`${base} bg-brand-primary text-sm text-on-fill`}>
         {initials(user.name)}
       </span>
     );
@@ -1012,15 +1224,18 @@ function HandOff({ task, onHandOff }) {
   const [targetId, setTargetId] = useState('');
   const selectId = `${task.id}-handoff`;
   const others = USERS.filter((u) => u.id !== task.assignedUserId);
+  // Move focus into the panel when it opens, so keyboard users land on the choice.
+  const selectRef = useRef(null);
+  useEffect(() => selectRef.current?.focus(), []);
   return (
-    // relative z-10 lifts the controls above the card's full-size edit button.
-    <div className="relative z-10 mt-3 flex flex-wrap items-end gap-2 border-t border-surface-border pt-3">
+    <div className="flex flex-wrap items-end gap-2 rounded-md bg-surface-page p-2">
       <div className="min-w-0 flex-1">
         <label htmlFor={selectId} className="block text-sm font-semibold">
           Hand off to…
         </label>
         <select
           id={selectId}
+          ref={selectRef}
           className="mt-1 block min-h-target w-full rounded-md border border-surface-border bg-surface-card px-2 text-sm"
           value={targetId}
           onChange={(e) => setTargetId(e.target.value)}
@@ -1125,7 +1340,7 @@ function AnchorCard({ deliverable, url, ticketCount, onSave }) {
           <button
             type="submit"
             aria-label={`Save ${name} link`}
-            className="min-h-target shrink-0 rounded-md bg-brand-primary px-3 text-sm font-semibold text-white hover:bg-brand-accent"
+            className="min-h-target shrink-0 rounded-md bg-brand-primary px-3 text-sm font-semibold text-on-fill hover:bg-brand-accent"
           >
             Save
           </button>
@@ -1182,6 +1397,123 @@ function AnchorBoard({ anchors, tasks, onSave }) {
   );
 }
 
+const VIEWS = [
+  { id: 'board',        label: 'Board',        Icon: LayoutGrid },
+  { id: 'deliverables', label: 'Deliverables', Icon: Package },
+];
+
+/**
+ * Board / Deliverables tabs, following the WAI-ARIA tabs pattern: one Tab stop for the
+ * group, ←/→ (and Home/End) move between tabs, and the selected tab is shown by a bold
+ * label plus an underline bar, not colour alone.
+ */
+function ViewTabs({ active, onChange, deliverablesLinked }) {
+  const tabRefs = useRef({});
+
+  function handleKeyDown(e) {
+    const index = VIEWS.findIndex((v) => v.id === active);
+    const moves = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: VIEWS.length - 1 };
+    if (!(e.key in moves)) return;
+    e.preventDefault();
+    const next = VIEWS[(moves[e.key] + VIEWS.length) % VIEWS.length];
+    onChange(next.id);
+    tabRefs.current[next.id]?.focus();
+  }
+
+  return (
+    <div role="tablist" aria-label="Views" className="mb-6 flex gap-2 border-b border-surface-border">
+      {VIEWS.map(({ id, label, Icon }) => {
+        const selected = id === active;
+        return (
+          <button
+            key={id}
+            ref={(el) => (tabRefs.current[id] = el)}
+            type="button"
+            role="tab"
+            id={`tab-${id}`}
+            aria-selected={selected}
+            aria-controls={`panel-${id}`}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onChange(id)}
+            onKeyDown={handleKeyDown}
+            className={`-mb-px flex min-h-target items-center gap-2 border-b-4 px-4 text-base ${
+              selected
+                ? 'border-brand-primary font-bold text-brand-primary'
+                : 'border-transparent font-semibold text-text-muted hover:text-brand-accent'
+            }`}
+          >
+            <Icon size={18} aria-hidden="true" />
+            {label}
+            {id === 'deliverables' && (
+              <span className="rounded-full border border-surface-border px-2 text-sm font-semibold text-text-muted">
+                {deliverablesLinked}/{DELIVERABLES.length}
+                <span className="sr-only"> linked</span>
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const THEMES = [
+  { id: 'system', label: 'System', Icon: Monitor },
+  { id: 'light',  label: 'Light',  Icon: Sun },
+  { id: 'dark',   label: 'Dark',   Icon: Moon },
+];
+
+/**
+ * Theme choice, saved per browser. 'system' follows the OS setting and updates live
+ * if it changes. index.html applies the same logic before first paint.
+ */
+function useTheme() {
+  const [choice, setChoice] = useLocalStorage('vibetracker.theme', 'system');
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      const dark = choice === 'dark' || (choice === 'system' && media.matches);
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    };
+    apply();
+    if (choice !== 'system') return undefined;
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, [choice]);
+  return [choice, setChoice];
+}
+
+/** System / Light / Dark as a labelled radio group: always visible, arrow-key operable. */
+function ThemeToggle() {
+  const [choice, setChoice] = useTheme();
+  return (
+    <fieldset>
+      <legend className="text-sm font-semibold">Theme</legend>
+      <div className="mt-1 flex rounded-md border border-surface-border bg-surface-card p-0.5">
+        {THEMES.map(({ id, label, Icon }) => (
+          <label
+            key={id}
+            className={`flex min-h-target cursor-pointer items-center gap-1 rounded px-3 text-sm font-semibold has-[:focus-visible]:outline has-[:focus-visible]:outline-[3px] has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand-primary ${
+              choice === id ? 'bg-brand-primary text-on-fill' : 'text-text-primary hover:text-brand-accent'
+            }`}
+          >
+            <input
+              type="radio"
+              name="theme"
+              value={id}
+              checked={choice === id}
+              onChange={() => setChoice(id)}
+              className="sr-only"
+            />
+            <Icon size={16} aria-hidden="true" />
+            {label}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 /** M7 optional strip: who is driving which In Progress tickets right now. */
 function DrivingStrip({ tasks }) {
   return (
@@ -1224,40 +1556,128 @@ function DrivingStrip({ tasks }) {
   );
 }
 
-function Column({ stage, tasks, now, onOpenTask, onHandOff, onCopied, recentHandOffId }) {
+/** A column's tickets in display order. */
+const columnTasks = (tasks, status) =>
+  tasks.filter((t) => t.status === status).sort((a, b) => a.position - b.position);
+
+/**
+ * M12: moves a ticket to `status` at `index`, renumbering positions in the columns it
+ * leaves and enters. Used by drag-and-drop, keyboard dragging and the Move up/down buttons.
+ */
+export function moveTask(tasks, taskId, status, index) {
+  const task = tasks.find((t) => t.id === taskId);
+  const now = new Date().toISOString();
+  const moved = {
+    ...task,
+    status,
+    updatedAt: now,
+    completedAt: status === 'done' ? task.completedAt ?? now : null,
+  };
+  const target = columnTasks(tasks, status).filter((t) => t.id !== taskId);
+  target.splice(Math.max(0, Math.min(index, target.length)), 0, moved);
+
+  const positions = new Map(target.map((t, i) => [t.id, i]));
+  if (task.status !== status) {
+    columnTasks(tasks, task.status)
+      .filter((t) => t.id !== taskId)
+      .forEach((t, i) => positions.set(t.id, i));
+  }
+  return tasks.map((t) => {
+    const base = t.id === taskId ? moved : t;
+    return positions.has(t.id) ? { ...base, position: positions.get(t.id) } : base;
+  });
+}
+
+/** Where a ticket sits: its column, 0-based index and the column size. */
+function locate(tasks, taskId) {
+  const task = tasks.find((t) => t.id === taskId);
+  const column = columnTasks(tasks, task.status);
+  return { status: task.status, index: column.findIndex((t) => t.id === taskId), count: column.length };
+}
+
+const stageLabel = (status) => findById(STAGES, status)?.label ?? status;
+
+/** "TASK-003 moved to Review, position 2 of 3." (DESIGN.md §5) */
+function moveMessage(tasks, taskId) {
+  const { status, index, count } = locate(tasks, taskId);
+  return `${taskId} moved to ${stageLabel(status)}, position ${index + 1} of ${count}.`;
+}
+
+/**
+ * Collapses or expands a set of tickets at once. It collapses until every ticket in the set is
+ * collapsed, then offers to expand, so one press always does something visible.
+ */
+function CollapseAllButton({ ids, collapsedIds, onSetCollapsed, scope, compact = false }) {
+  const allCollapsed = ids.length > 0 && ids.every((id) => collapsedIds.includes(id));
+  const action = allCollapsed ? 'Expand all' : 'Collapse all';
+  const Icon = allCollapsed ? ChevronsUpDown : ChevronsDownUp;
+  return (
+    <button
+      type="button"
+      disabled={ids.length === 0}
+      onClick={() => onSetCollapsed(ids, !allCollapsed)}
+      aria-label={scope ? `${action} in ${scope}` : undefined}
+      title={compact ? `${action} in ${scope}` : undefined}
+      className={`${iconButton} gap-2 ${compact ? '' : 'px-3 text-sm font-semibold'}`}
+    >
+      <Icon size={18} aria-hidden="true" />
+      {!compact && action}
+    </button>
+  );
+}
+
+function Column({ stage, tasks, cardProps }) {
   const headingId = `column-${stage.id}`;
+  // The column itself is a drop target, so empty columns can receive cards.
+  const { setNodeRef, isOver } = useDroppable({
+    id: `column:${stage.id}`,
+    data: { type: 'column', status: stage.id },
+  });
   return (
     <section
+      ref={setNodeRef}
       aria-labelledby={headingId}
-      className="flex min-w-0 flex-col rounded-lg border border-surface-border bg-surface-page p-3"
+      className={`flex min-w-0 flex-col rounded-lg border bg-surface-page p-3 ${
+        isOver ? 'border-brand-primary ring-2 ring-brand-primary' : 'border-surface-border'
+      }`}
     >
-      <h2 id={headingId} className="flex items-baseline justify-between px-1 text-lg font-bold">
-        {stage.label}
-        <span className="text-sm font-normal text-text-muted">
-          {tasks.length}
-          <span className="sr-only"> {tasks.length === 1 ? 'ticket' : 'tickets'}</span>
-        </span>
-      </h2>
-      {tasks.length === 0 ? (
-        <p className="mt-3 rounded-md border-2 border-dashed border-surface-border p-4 text-sm text-text-muted">
-          No tickets in {stage.label} yet.
-        </p>
-      ) : (
-        <ul className="mt-3 flex flex-col gap-3">
-          {tasks.map((task) => (
-            <li key={task.id}>
-              <TaskCard
+      <div className="flex items-center justify-between gap-2 px-1">
+        <h2 id={headingId} className="flex items-center gap-2 text-lg font-bold">
+          {stage.label}
+          <span className="min-w-[2rem] rounded-full border border-surface-border bg-surface-card px-2 text-center text-sm font-semibold text-text-muted">
+            {tasks.length}
+            <span className="sr-only"> {tasks.length === 1 ? 'ticket' : 'tickets'}</span>
+          </span>
+        </h2>
+        <CollapseAllButton
+          ids={tasks.map((t) => t.id)}
+          collapsedIds={cardProps.collapsedIds}
+          onSetCollapsed={cardProps.onSetCollapsed}
+          scope={stage.label}
+          compact
+        />
+      </div>
+      <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+        {tasks.length === 0 ? (
+          <p className="mt-3 rounded-md border-2 border-dashed border-surface-border p-4 text-sm text-text-muted">
+            No tickets in {stage.label} yet. Drag a ticket here or change its status.
+          </p>
+        ) : (
+          <ul className="mt-3 flex flex-col gap-3">
+            {tasks.map((task, index) => (
+              <SortableTaskCard
+                key={task.id}
                 task={task}
-                now={now}
-                onOpen={onOpenTask}
-                onHandOff={onHandOff}
-                onCopied={onCopied}
-                justHandedOff={task.id === recentHandOffId}
+                isFirst={index === 0}
+                isLast={index === tasks.length - 1}
+                {...cardProps}
+                justHandedOff={task.id === cardProps.recentHandOffId}
+                collapsed={cardProps.collapsedIds.includes(task.id)}
               />
-            </li>
-          ))}
-        </ul>
-      )}
+            ))}
+          </ul>
+        )}
+      </SortableContext>
     </section>
   );
 }
@@ -1277,16 +1697,31 @@ export default function App() {
 
   // Status message shown as a toast and announced by screen readers (WCAG 4.1.3).
   const [toast, setToast] = useState('');
+  // Card moves are announced to screen readers only — a visual pop-up on every move was noise.
+  const [moveAnnouncement, setMoveAnnouncement] = useState('');
+  function announce(message) {
+    // Clear first so repeating the same message is still announced.
+    setMoveAnnouncement('');
+    requestAnimationFrame(() => setMoveAnnouncement(message));
+  }
   // Ticket that was just handed off; its card shows a "Handed off just now" note while the toast is up.
   const [recentHandOffId, setRecentHandOffId] = useState(null);
+  // The toast stays while hovered or focused, so slower readers aren't rushed (WCAG 2.2.1).
+  const [toastPaused, setToastPaused] = useState(false);
   useEffect(() => {
-    if (!toast) return undefined;
+    if (!toast || toastPaused) return undefined;
     const timer = setTimeout(() => {
       setToast('');
       setRecentHandOffId(null);
     }, 5000);
     return () => clearTimeout(timer);
-  }, [toast]);
+  }, [toast, toastPaused]);
+
+  function dismissToast() {
+    setToast('');
+    setToastPaused(false);
+    setRecentHandOffId(null);
+  }
 
   function handOff(taskId, userId) {
     const user = findById(USERS, userId);
@@ -1357,6 +1792,124 @@ export default function App() {
     closeModal();
   }
 
+  // M12: drag-and-drop. Pointer and keyboard sensors; the keyboard one moves between
+  // positions and columns with the arrow keys.
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  // Board state before the drag, restored if the drag is cancelled with Esc.
+  const dragSnapshot = useRef(null);
+  // Announcements run outside React's render, so read the latest tasks from a ref.
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+
+  /** Column + index that a drag is currently over, or null. */
+  function dropTarget(list, over) {
+    if (!over) return null;
+    if (over.data.current?.type === 'column') {
+      const status = over.data.current.status;
+      return { status, index: columnTasks(list, status).length };
+    }
+    const overTask = list.find((t) => t.id === over.id);
+    if (!overTask) return null;
+    return { status: overTask.status, index: locate(list, over.id).index };
+  }
+
+  function handleDragStart() {
+    dragSnapshot.current = tasks;
+  }
+
+  // Moving into another column happens live, so the card visibly joins it while dragging.
+  function handleDragOver({ active, over }) {
+    const target = dropTarget(tasks, over);
+    const task = tasks.find((t) => t.id === active.id);
+    if (!target || !task || task.status === target.status) return;
+    setTasks(moveTask(tasks, active.id, target.status, target.index));
+  }
+
+  function handleDragEnd({ active, over }) {
+    const target = dropTarget(tasks, over);
+    if (!target) {
+      handleDragCancel();
+      return;
+    }
+    const next = moveTask(tasks, active.id, target.status, target.index);
+    setTasks(next);
+    announce(moveMessage(next, active.id));
+  }
+
+  function handleDragCancel() {
+    if (dragSnapshot.current) setTasks(dragSnapshot.current);
+  }
+
+  function moveByOne(taskId, delta) {
+    const { status, index } = locate(tasks, taskId);
+    const next = moveTask(tasks, taskId, status, index + delta);
+    setTasks(next);
+    announce(moveMessage(next, taskId));
+  }
+
+  /** Button alternative to dragging between columns: drops the ticket at the bottom of `status`. */
+  function moveToColumn(taskId, status) {
+    const next = moveTask(tasks, taskId, status, columnTasks(tasks, status).length);
+    setTasks(next);
+    announce(moveMessage(next, taskId));
+    // The card remounts in its new column, so put focus back on the same arrow there
+    // (or the opposite one once it reaches the first/last column).
+    const order = STAGES.map((s) => s.id);
+    const forward = order.indexOf(status) > order.indexOf(locate(tasks, taskId).status);
+    requestAnimationFrame(() => {
+      const group = document.querySelector(`[role="group"][aria-label="Move ${taskId}"]`);
+      const buttons = [...(group?.querySelectorAll('button') ?? [])];
+      const preferred = forward ? buttons.at(-1) : buttons[0];
+      const fallback = forward ? buttons[0] : buttons.at(-1);
+      (preferred && !preferred.disabled ? preferred : fallback)?.focus();
+    });
+  }
+
+  // Screen-reader guidance and live announcements while dragging (DESIGN.md §4).
+  const accessibility = {
+    screenReaderInstructions: {
+      draggable:
+        'To pick up a ticket, press Space. Use the arrow keys to move it: left and right change column, ' +
+        'up and down change position. Press Space again to drop it, or Escape to cancel.',
+    },
+    announcements: {
+      onDragStart: ({ active }) => {
+        const { status, index, count } = locate(tasksRef.current, active.id);
+        return `Picked up ${active.id}. ${stageLabel(status)}, position ${index + 1} of ${count}.`;
+      },
+      onDragOver: ({ active, over }) => {
+        const target = dropTarget(tasksRef.current, over);
+        if (!target) return `${active.id} is not over a column.`;
+        const count = columnTasks(tasksRef.current, target.status).filter((t) => t.id !== active.id).length + 1;
+        return `${active.id} is over ${stageLabel(target.status)}, position ${Math.min(target.index + 1, count)} of ${count}.`;
+      },
+      // The drop is announced by the hidden move announcer, so avoid saying it twice.
+      onDragEnd: () => undefined,
+      onDragCancel: ({ active }) => `Move cancelled. ${active.id} returned to where it was.`,
+    },
+  };
+
+  // Tickets collapsed to just their title, saved per browser.
+  const [collapsedIds, setCollapsedIds] = useLocalStorage('vibetracker.collapsed', []);
+  function toggleCollapsed(taskId) {
+    setCollapsedIds((ids) => (ids.includes(taskId) ? ids.filter((id) => id !== taskId) : [...ids, taskId]));
+  }
+  /** Collapses or expands several tickets at once (a column, or the whole board). */
+  function setCollapsed(taskIds, collapse) {
+    setCollapsedIds((ids) => {
+      const rest = ids.filter((id) => !taskIds.includes(id));
+      return collapse ? [...rest, ...taskIds] : rest;
+    });
+    const count = plural(taskIds.length, 'ticket');
+    announce(`${count} ${collapse ? 'collapsed to titles only' : 'expanded'}.`);
+  }
+
+  // Which tab is showing; the board is the default so it stays the main focus.
+  const [view, setView] = useLocalStorage('vibetracker.view', 'board');
+
   // M11: deliverable id → URL ('' when empty).
   const [anchors, setAnchors] = useLocalStorage('vibetracker.anchors', {});
 
@@ -1367,47 +1920,99 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen p-4 sm:p-6">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-[1.75rem] font-bold text-brand-primary">
-            Vibecoding Project Tracker
-          </h1>
-          <p className="text-sm text-text-muted">
-            Track vibecoding tickets and the AI context behind them.
-          </p>
+    <div className="min-h-screen">
+      {/* WCAG 2.4.1 Bypass Blocks: first Tab stop, visible only when focused. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-brand-primary focus:px-4 focus:py-3 focus:font-semibold focus:text-on-fill"
+      >
+        Skip to main content
+      </a>
+
+      <header className="border-b border-surface-border bg-surface-card">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-end justify-between gap-4 px-4 py-5 sm:px-6">
+          <div>
+            <h1 className="text-[1.75rem] font-bold leading-tight text-brand-primary">
+              Vibecoding Project Tracker
+            </h1>
+            <p className="mt-1 text-sm text-text-muted">
+              Track vibecoding tickets and the AI context behind them.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-4">
+            <ThemeToggle />
+            <button
+              ref={newButtonRef}
+              type="button"
+              className={`${buttonPrimary} inline-flex items-center gap-2 shadow-sm`}
+              onClick={(e) => openModal(emptyDraft(), e.currentTarget)}
+              aria-label="Create new ticket"
+            >
+              <Plus size={20} strokeWidth={2.5} aria-hidden="true" />
+              New ticket
+            </button>
+          </div>
         </div>
-        <button
-          ref={newButtonRef}
-          type="button"
-          className={buttonPrimary}
-          onClick={(e) => openModal(emptyDraft(), e.currentTarget)}
-          aria-label="Create new ticket"
-        >
-          <span aria-hidden="true">+ </span>New ticket
-        </button>
       </header>
 
-      <AnchorBoard anchors={anchors} tasks={tasks} onSave={saveAnchor} />
+      {/* tabIndex -1 lets the skip link move focus here, not just scroll. */}
+      <main id="main" tabIndex={-1} className="mx-auto max-w-[1600px] px-4 py-6 focus:outline-none sm:px-6">
+        <ViewTabs
+          active={view}
+          onChange={setView}
+          deliverablesLinked={DELIVERABLES.filter((d) => anchors[d.id]).length}
+        />
 
-      <DrivingStrip tasks={tasks} />
+        <div role="tabpanel" id="panel-deliverables" aria-labelledby="tab-deliverables" hidden={view !== 'deliverables'}>
+          <AnchorBoard anchors={anchors} tasks={tasks} onSave={saveAnchor} />
+        </div>
 
-      <main aria-label="Board">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {STAGES.map((stage) => (
-            <Column
-              key={stage.id}
-              stage={stage}
-              tasks={tasks
-                .filter((task) => task.status === stage.id)
-                .sort((a, b) => a.position - b.position)}
-              now={now}
-              onOpenTask={openModal}
-              onHandOff={handOff}
-              onCopied={setToast}
-              recentHandOffId={recentHandOffId}
+        <div role="tabpanel" id="panel-board" aria-labelledby="tab-board" hidden={view !== 'board'}>
+          <DrivingStrip tasks={tasks} />
+
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-text-muted">
+              {plural(tasks.length, 'ticket')}
+              {collapsedIds.length > 0 && ` · ${tasks.filter((t) => collapsedIds.includes(t.id)).length} collapsed`}
+            </p>
+            <CollapseAllButton
+              ids={tasks.map((t) => t.id)}
+              collapsedIds={collapsedIds}
+              onSetCollapsed={setCollapsed}
             />
-          ))}
+          </div>
+
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            accessibility={accessibility}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
+          >
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {STAGES.map((stage) => (
+                <Column
+                  key={stage.id}
+                  stage={stage}
+                  tasks={columnTasks(tasks, stage.id)}
+                  cardProps={{
+                    now,
+                    onOpen: openModal,
+                    onHandOff: handOff,
+                    onCopied: setToast,
+                    onMove: moveByOne,
+                    onMoveColumn: moveToColumn,
+                    recentHandOffId,
+                    collapsedIds,
+                    onToggleCollapsed: toggleCollapsed,
+                    onSetCollapsed: setCollapsed,
+                  }}
+                />
+              ))}
+            </div>
+          </DndContext>
         </div>
       </main>
 
@@ -1415,15 +2020,33 @@ export default function App() {
         <TaskModal task={editing} now={now} onSave={saveTask} onDelete={deleteTask} onClose={closeModal} />
       )}
 
+      <p role="status" aria-live="polite" className="sr-only">
+        {moveAnnouncement}
+      </p>
+
       <div
         role="status"
         aria-live="polite"
-        className="pointer-events-none fixed inset-x-0 bottom-4 flex justify-center px-4"
+        className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4"
       >
         {toast && (
-          <p className="pointer-events-auto rounded-md bg-text-primary px-4 py-3 font-semibold text-white shadow-lg motion-safe:animate-[fade-in_200ms_ease-out]">
-            {toast}
-          </p>
+          <div
+            onMouseEnter={() => setToastPaused(true)}
+            onMouseLeave={() => setToastPaused(false)}
+            onFocus={() => setToastPaused(true)}
+            onBlur={() => setToastPaused(false)}
+            className="pointer-events-auto flex items-center gap-3 rounded-lg border border-transparent bg-text-primary py-1 pl-4 pr-1 font-semibold text-on-fill shadow-lg motion-safe:animate-[fade-in_200ms_ease-out]"
+          >
+            <p>{toast}</p>
+            <button
+              type="button"
+              onClick={dismissToast}
+              aria-label="Dismiss message"
+              className="inline-flex min-h-target min-w-target items-center justify-center rounded-md hover:bg-on-fill/15 focus-visible:outline-on-fill"
+            >
+              <X size={20} aria-hidden="true" />
+            </button>
+          </div>
         )}
       </div>
     </div>

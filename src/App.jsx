@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
   DndContext,
@@ -38,6 +38,9 @@ import {
   FileText,
   GripVertical,
   LayoutGrid,
+  Lock,
+  LogIn,
+  LogOut,
   MonitorPlay,
   OctagonAlert,
   Package,
@@ -47,6 +50,7 @@ import {
   Monitor,
   Moon,
   Sun,
+  UserPlus,
   UserX,
   Users,
   X,
@@ -67,6 +71,7 @@ import {
  *   - M10 copy-context  : "Copy context" handoff block on cards + modal. ✓
  *   - M11 project-deliverables : Deliverable Anchor Board + ticket links. ✓
  *   - M12 secret-sauce  : accessible drag-and-drop (pointer, keyboard, screen reader). ✓
+ *   - Login (PRD nice-to-have): demo sign-in / sign-up, hashed passwords, role permissions. ✓
  *
  * Search the file for `TODO M<n>` to find the right hook for each milestone.
  */
@@ -150,17 +155,47 @@ function TypeBadge({ type }) {
 }
 
 // Demo reference data (PRD §5: seed sample users, roles, teams and AI tools).
+// Basic role-based access control (PRD §10). Anything not listed is open to every signed-in user.
+export const PERMISSIONS = {
+  deleteTicket: 'ticket.delete',
+  editDeliverables: 'deliverables.edit',
+};
+
 export const ROLES = [
-  { id: 'role-lead', name: 'Lead developer' },
-  { id: 'role-dev',  name: 'Developer' },
-  { id: 'role-ux',   name: 'UX designer' },
+  { id: 'role-lead', name: 'Lead developer', permissions: [PERMISSIONS.deleteTicket, PERMISSIONS.editDeliverables] },
+  { id: 'role-dev',  name: 'Developer',      permissions: [PERMISSIONS.deleteTicket] },
+  { id: 'role-ux',   name: 'UX designer',    permissions: [] },
 ];
 
+export const can = (user, permission) =>
+  Boolean(findById(ROLES, user?.roleId)?.permissions.includes(permission));
+
+/** Role names that hold a permission, for "Only … can do this" messages. */
+const rolesWith = (permission) =>
+  ROLES.filter((r) => r.permissions.includes(permission)).map((r) => `${r.name}s`).join(' and ');
+
+// Seeded demo accounts; every one signs in with DEMO_PASSWORD. Hashes are PBKDF2-SHA256
+// (see hashPassword) so no plaintext password is stored, even in the demo.
+export const DEMO_PASSWORD = 'demo1234';
+
 export const USERS = [
-  { id: 'u-finlay', name: 'Finlay Edwards', email: 'finlay@example.com', githubUsername: 'FinlayEdwards', roleId: 'role-lead' },
-  { id: 'u-sam',    name: 'Sam Rivera',     email: 'sam@example.com',    githubUsername: 'samrivera',     roleId: 'role-dev' },
-  { id: 'u-priya',  name: 'Priya Shah',     email: 'priya@example.com',  githubUsername: 'priyashah',     roleId: 'role-ux' },
+  {
+    id: 'u-finlay', name: 'Finlay Edwards', email: 'finlay@example.com', githubUsername: 'FinlayEdwards', roleId: 'role-lead',
+    salt: '36c4fdf6513bbc48156f90e5853c38a9', passwordHash: 'da264f86c1a10d10058975a2506fca1de1862a4562e4260f82228b7da3325829',
+  },
+  {
+    id: 'u-sam', name: 'Sam Rivera', email: 'sam@example.com', githubUsername: 'samrivera', roleId: 'role-dev',
+    salt: '88e537123c2b0f55648f756bcfc98672', passwordHash: '5a5e23db9c3ef8ed15d3e826939471c69ec8db40043542c5508853838607b5a4',
+  },
+  {
+    id: 'u-priya', name: 'Priya Shah', email: 'priya@example.com', githubUsername: 'priyashah', roleId: 'role-ux',
+    salt: 'a06ac507ccbfc30b381467b234d3787e', passwordHash: 'db1ebee71d5002f3edf1e9b6721c3a585062fa6c579c5a67fba8b86c915e47c3',
+  },
 ];
+
+// Accounts live in state (seeded from USERS) so sign-ups appear in every user picker.
+const UsersContext = createContext(USERS);
+const useUsers = () => useContext(UsersContext);
 
 export const TEAMS = [
   { id: 'team-frontend', name: 'Frontend', memberIds: ['u-finlay', 'u-sam'] },
@@ -420,8 +455,8 @@ export function useLocalStorage(key, initialValue) {
 }
 
 /** Who a ticket is assigned to, as display text: user, team, both, or nobody. */
-function assigneeLabel(task) {
-  const user = findById(USERS, task.assignedUserId);
+function assigneeLabel(task, users) {
+  const user = findById(users, task.assignedUserId);
   const team = findById(TEAMS, task.assignedTeamId);
   if (user && team) return `${user.name} · ${team.name}`;
   if (user) return user.name;
@@ -433,7 +468,7 @@ function assigneeLabel(task) {
  * M10 copy-context: the paste-ready handoff block (PRD §5) — ticket ID, title, status,
  * AI tool and the raw Markdown context, framed so it reads as a briefing in a new AI chat.
  */
-export function buildContextBlock(task) {
+export function buildContextBlock(task, users = USERS) {
   const id = task.id ?? 'New ticket';
   const status = findById(STAGES, task.status)?.label ?? task.status;
   const tool = findById(AI_TOOLS, task.aiToolId)?.name ?? 'None recorded';
@@ -444,7 +479,7 @@ export function buildContextBlock(task) {
     '',
     `- **Status:** ${status}`,
     `- **Type:** ${typeStyle(task.type).label}`,
-    `- **Assigned to:** ${assigneeLabel(task)}`,
+    `- **Assigned to:** ${assigneeLabel(task, users)}`,
     `- **Due:** ${task.dueDate ?? 'No due date'}`,
     `- **AI tool used so far:** ${tool}`,
   ];
@@ -476,9 +511,10 @@ async function copyText(text) {
 /** "Copy context" button; reports a success or failure message through onResult. */
 function CopyContextButton({ task, onResult, className = '' }) {
   const id = task.id ?? 'new ticket';
+  const users = useUsers();
   async function handleClick() {
     try {
-      await copyText(buildContextBlock(task));
+      await copyText(buildContextBlock(task, users));
       onResult(`Copied ${task.id ?? 'ticket'} context. Paste it into your AI tool.`);
     } catch {
       onResult(`Couldn't copy ${task.id ?? 'the'} context. Check clipboard permissions and try again.`);
@@ -534,7 +570,7 @@ function emptyDraft() {
  * Appends an AI usage entry when a tool is set and either the tool or the context changed,
  * so the log records each meaningful AI session without duplicating unchanged saves.
  */
-function withUsageLog(draft, previous, now) {
+function withUsageLog(draft, previous, now, userId) {
   const log = draft.aiUsageLog ?? [];
   const changed =
     !previous || previous.aiToolId !== draft.aiToolId || previous.aiContext !== draft.aiContext;
@@ -544,7 +580,7 @@ function withUsageLog(draft, previous, now) {
     {
       id: `${now}-${log.length}`,
       aiToolId: draft.aiToolId,
-      usedBy: USERS[0].id,
+      usedBy: userId,
       contextSnapshot: draft.aiContext,
       loggedAt: now,
     },
@@ -638,6 +674,7 @@ const markdownComponents = {
  * a "last updated" hint and the append-only AI usage history (PRD §5–6).
  */
 function ContextSection({ draft, setDraft, now }) {
+  const users = useUsers();
   const history = [...(draft.aiUsageLog ?? [])].reverse().slice(0, 5);
   // The board's toast sits behind the modal's inert backdrop, so the modal announces copies itself.
   const [copyMessage, setCopyMessage] = useState('');
@@ -724,7 +761,7 @@ function ContextSection({ draft, setDraft, now }) {
               <li key={entry.id} className="flex flex-wrap gap-x-2">
                 <span className="font-semibold">{findById(AI_TOOLS, entry.aiToolId)?.name ?? 'Unknown tool'}</span>
                 <span className="text-text-muted">
-                  {findById(USERS, entry.usedBy)?.name ?? 'Someone'} · {timeAgo(entry.loggedAt, now)}
+                  {findById(users, entry.usedBy)?.name ?? 'Someone'} · {timeAgo(entry.loggedAt, now)}
                 </span>
               </li>
             ))}
@@ -735,19 +772,34 @@ function ContextSection({ draft, setDraft, now }) {
   );
 }
 
-function TaskModal({ task, now, onSave, onDelete, onClose }) {
+function TaskModal({ task, now, canDelete, onSave, onDelete, onClose }) {
+  const users = useUsers();
   const dialogRef = useRef(null);
   const titleRef = useRef(null);
   const isNew = !task.id;
   const [draft, setDraft] = useState(task);
   const [titleError, setTitleError] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // The button that was clicked disappears either way, so move focus to its counterpart.
+  const deleteButtonRef = useRef(null);
+  const keepButtonRef = useRef(null);
+  const confirmToggled = useRef(false);
 
   useEffect(() => {
     // Guard: React StrictMode runs effects twice in development.
     if (!dialogRef.current.open) dialogRef.current.showModal();
     titleRef.current.focus();
   }, []);
+
+  useEffect(() => {
+    if (!confirmToggled.current) return;
+    (confirmingDelete ? keepButtonRef : deleteButtonRef).current?.focus();
+  }, [confirmingDelete]);
+
+  function toggleConfirmDelete(value) {
+    confirmToggled.current = true;
+    setConfirmingDelete(value);
+  }
 
   const set = (field) => (value) => setDraft((d) => ({ ...d, [field]: value }));
 
@@ -868,7 +920,7 @@ function TaskModal({ task, now, onSave, onDelete, onClose }) {
               id="task-user"
               value={draft.assignedUserId}
               onChange={set('assignedUserId')}
-              options={USERS}
+              options={users}
               emptyLabel="Nobody"
             />
           </Field>
@@ -910,6 +962,7 @@ function TaskModal({ task, now, onSave, onDelete, onClose }) {
 
         {confirmingDelete ? (
           <div
+            key="confirm-delete"
             role="alert"
             className="rounded-md border border-due-overdue bg-due-overdue-tint p-4"
           >
@@ -920,19 +973,26 @@ function TaskModal({ task, now, onSave, onDelete, onClose }) {
               <button type="button" className={buttonDanger} onClick={() => onDelete(task.id)}>
                 Yes, delete {task.id}
               </button>
-              <button type="button" className={buttonSecondary} onClick={() => setConfirmingDelete(false)}>
+              <button ref={keepButtonRef} type="button" className={buttonSecondary} onClick={() => toggleConfirmDelete(false)}>
                 Keep ticket
               </button>
             </div>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-border pt-4">
+          // Separate keys stop React reusing "Keep ticket" as the submit button mid-click,
+          // which would save and close the modal instead of just cancelling the delete.
+          <div key="actions" className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-border pt-4">
             {isNew ? (
               <span />
-            ) : (
-              <button type="button" className={buttonDanger} onClick={() => setConfirmingDelete(true)}>
+            ) : canDelete ? (
+              <button ref={deleteButtonRef} type="button" className={buttonDanger} onClick={() => toggleConfirmDelete(true)}>
                 Delete
               </button>
+            ) : (
+              <p className="flex items-center gap-1 text-sm text-text-muted">
+                <Lock size={16} aria-hidden="true" />
+                Only {rolesWith(PERMISSIONS.deleteTicket)} can delete tickets.
+              </p>
             )}
             <div className="flex flex-wrap gap-3">
               <button type="button" className={buttonSecondary} onClick={onClose}>
@@ -1002,7 +1062,7 @@ function trackHolo(e) {
 }
 
 function TaskCard({ task, now, onOpen, onHandOff, onCopied, onMove, onMoveColumn, justHandedOff, isFirst, isLast, isDragging, dragHandle, collapsed, onToggleCollapsed }) {
-  const assignee = assigneeLabel(task);
+  const assignee = assigneeLabel(task, useUsers());
   const tint = DUE_STATES[dueStatus(task, now).state].card;
   const stageIndex = STAGES.findIndex((s) => s.id === task.status);
   const prevStage = STAGES[stageIndex - 1];
@@ -1193,7 +1253,7 @@ function initials(name) {
  * a dashed outline when unassigned. Decorative — the name beside it is the label.
  */
 function OwnerAvatar({ task, size = 'h-9 w-9' }) {
-  const user = findById(USERS, task.assignedUserId);
+  const user = findById(useUsers(), task.assignedUserId);
   const base = `flex ${size} shrink-0 items-center justify-center rounded-full font-bold`;
   if (user) {
     return (
@@ -1223,7 +1283,7 @@ function OwnerAvatar({ task, size = 'h-9 w-9' }) {
 function HandOff({ task, onHandOff }) {
   const [targetId, setTargetId] = useState('');
   const selectId = `${task.id}-handoff`;
-  const others = USERS.filter((u) => u.id !== task.assignedUserId);
+  const others = useUsers().filter((u) => u.id !== task.assignedUserId);
   // Move focus into the panel when it opens, so keyboard users land on the choice.
   const selectRef = useRef(null);
   useEffect(() => selectRef.current?.focus(), []);
@@ -1275,7 +1335,7 @@ function isValidUrl(value) {
 }
 
 /** One deliverable slot: URL field, empty/filled status, open link and linked-ticket count. */
-function AnchorCard({ deliverable, url, ticketCount, onSave }) {
+function AnchorCard({ deliverable, url, ticketCount, canEdit, onSave }) {
   const { id, name, Icon } = deliverable;
   const [value, setValue] = useState(url);
   const [error, setError] = useState('');
@@ -1318,40 +1378,42 @@ function AnchorCard({ deliverable, url, ticketCount, onSave }) {
         {ticketCount === 0 ? 'No tickets linked' : `${plural(ticketCount, 'ticket')} linked`}
       </p>
 
-      <form onSubmit={handleSubmit} noValidate className="mt-3 flex flex-col gap-2">
-        <label htmlFor={inputId} className="text-sm font-semibold">
-          {name} link
-        </label>
-        <div className="flex gap-2">
-          <input
-            id={inputId}
-            type="url"
-            inputMode="url"
-            placeholder="https://"
-            className="block min-h-target w-full min-w-0 rounded-md border border-surface-border bg-surface-card px-3 text-sm"
-            value={value}
-            onChange={(e) => {
-              setValue(e.target.value);
-              if (error) setError('');
-            }}
-            aria-invalid={error ? 'true' : undefined}
-            aria-describedby={error ? `${inputId}-error` : undefined}
-          />
-          <button
-            type="submit"
-            aria-label={`Save ${name} link`}
-            className="min-h-target shrink-0 rounded-md bg-brand-primary px-3 text-sm font-semibold text-on-fill hover:bg-brand-accent"
-          >
-            Save
-          </button>
-        </div>
-        {error && (
-          <p id={`${inputId}-error`} className="text-sm font-semibold text-due-overdue">
-            <span aria-hidden="true">⚠ </span>
-            {error}
-          </p>
-        )}
-      </form>
+      {canEdit && (
+        <form onSubmit={handleSubmit} noValidate className="mt-3 flex flex-col gap-2">
+          <label htmlFor={inputId} className="text-sm font-semibold">
+            {name} link
+          </label>
+          <div className="flex gap-2">
+            <input
+              id={inputId}
+              type="url"
+              inputMode="url"
+              placeholder="https://"
+              className="block min-h-target w-full min-w-0 rounded-md border border-surface-border bg-surface-card px-3 text-sm"
+              value={value}
+              onChange={(e) => {
+                setValue(e.target.value);
+                if (error) setError('');
+              }}
+              aria-invalid={error ? 'true' : undefined}
+              aria-describedby={error ? `${inputId}-error` : undefined}
+            />
+            <button
+              type="submit"
+              aria-label={`Save ${name} link`}
+              className="min-h-target shrink-0 rounded-md bg-brand-primary px-3 text-sm font-semibold text-on-fill hover:bg-brand-accent"
+            >
+              Save
+            </button>
+          </div>
+          {error && (
+            <p id={`${inputId}-error`} className="text-sm font-semibold text-due-overdue">
+              <span aria-hidden="true">⚠ </span>
+              {error}
+            </p>
+          )}
+        </form>
+      )}
 
       {filled && (
         <a
@@ -1370,7 +1432,7 @@ function AnchorCard({ deliverable, url, ticketCount, onSave }) {
 }
 
 /** M11: Deliverable Anchor Board, pinned above the Kanban. */
-function AnchorBoard({ anchors, tasks, onSave }) {
+function AnchorBoard({ anchors, tasks, canEdit, onSave }) {
   const done = DELIVERABLES.filter((d) => anchors[d.id]).length;
   return (
     <section aria-labelledby="deliverables-heading" className="mb-6">
@@ -1382,6 +1444,12 @@ function AnchorBoard({ anchors, tasks, onSave }) {
           {done} of {DELIVERABLES.length} linked
         </p>
       </div>
+      {!canEdit && (
+        <p className="mt-1 flex items-center gap-1 text-sm text-text-muted">
+          <Lock size={16} aria-hidden="true" />
+          View only: {rolesWith(PERMISSIONS.editDeliverables)} can change deliverable links.
+        </p>
+      )}
       <ul className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {DELIVERABLES.map((d) => (
           <AnchorCard
@@ -1389,6 +1457,7 @@ function AnchorBoard({ anchors, tasks, onSave }) {
             deliverable={d}
             url={anchors[d.id] ?? ''}
             ticketCount={tasks.filter((t) => t.deliverableId === d.id).length}
+            canEdit={canEdit}
             onSave={onSave}
           />
         ))}
@@ -1516,13 +1585,14 @@ function ThemeToggle() {
 
 /** M7 optional strip: who is driving which In Progress tickets right now. */
 function DrivingStrip({ tasks }) {
+  const users = useUsers();
   return (
     <section aria-labelledby="driving-heading" className="mb-6">
       <h2 id="driving-heading" className="text-lg font-bold">
         Who's driving
       </h2>
       <ul className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {USERS.map((user) => {
+        {users.map((user) => {
           const driving = tasks.filter((t) => t.assignedUserId === user.id && t.status === 'in-progress');
           return (
             <li
@@ -1682,7 +1752,279 @@ function Column({ stage, tasks, cardProps }) {
   );
 }
 
+/**
+ * Demo login (PRD §5 nice-to-have). There is no backend: accounts and the session live in
+ * localStorage, so this shows the flow and the rules, not real security. Passwords are
+ * still only ever stored as salted PBKDF2 hashes, never as plaintext.
+ */
+const PBKDF2_ITERATIONS = 100000;
+
+const toHex = (buffer) => [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+export async function hashPassword(password, salt) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: PBKDF2_ITERATIONS },
+    key,
+    256,
+  );
+  return toHex(bits);
+}
+
+const newSalt = () => toHex(crypto.getRandomValues(new Uint8Array(16)));
+
+const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const MIN_PASSWORD_LENGTH = 8;
+
+/** Sign in / create account screen, shown until someone is signed in. */
+function LoginScreen({ users, onSignIn, onRegister }) {
+  const [mode, setMode] = useState('signin');
+  const isSignUp = mode === 'signup';
+  const [form, setForm] = useState({ name: '', email: '', githubUsername: '', password: '', confirm: '' });
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const headingRef = useRef(null);
+
+  const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  function switchMode(next) {
+    setMode(next);
+    setErrors({});
+    setForm((f) => ({ ...f, password: '', confirm: '' }));
+    requestAnimationFrame(() => headingRef.current?.focus());
+  }
+
+  function fillDemo(user) {
+    setMode('signin');
+    setErrors({});
+    setForm((f) => ({ ...f, email: user.email, password: DEMO_PASSWORD }));
+  }
+
+  function validate() {
+    const email = form.email.trim();
+    const next = {};
+    if (isSignUp && !form.name.trim()) next.name = 'Enter your name.';
+    if (!isValidEmail(email)) next.email = 'Enter an email address like name@example.com.';
+    else if (isSignUp && users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
+      next.email = 'An account with this email already exists. Sign in instead.';
+    }
+    if (isSignUp && form.password.length < MIN_PASSWORD_LENGTH) {
+      next.password = `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+    } else if (!form.password) next.password = 'Enter your password.';
+    if (isSignUp && form.confirm !== form.password) next.confirm = "Passwords don't match.";
+    return next;
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const found = validate();
+    setErrors(found);
+    const firstInvalid = Object.keys(found)[0];
+    if (firstInvalid) {
+      document.getElementById(`auth-${firstInvalid}`)?.focus();
+      return;
+    }
+    setBusy(true);
+    const email = form.email.trim();
+    try {
+      if (isSignUp) {
+        const salt = newSalt();
+        onRegister({
+          id: `u-${Date.now()}`,
+          name: form.name.trim(),
+          email,
+          githubUsername: form.githubUsername.trim().replace(/^@/, ''),
+          roleId: 'role-dev',
+          salt,
+          passwordHash: await hashPassword(form.password, salt),
+          createdAt: new Date().toISOString(),
+        });
+        return;
+      }
+      const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+      if (user && (await hashPassword(form.password, user.salt)) === user.passwordHash) {
+        onSignIn(user.id);
+        return;
+      }
+      // Same message either way, so the form doesn't reveal which emails have accounts.
+      setErrors({ form: 'Email or password is incorrect.' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fieldProps = (field) => ({
+    id: `auth-${field}`,
+    className: inputClass,
+    value: form[field],
+    onChange: set(field),
+    'aria-invalid': errors[field] ? 'true' : undefined,
+    'aria-describedby': errors[field] ? `auth-${field}-error` : undefined,
+  });
+  const fieldError = (field) =>
+    errors[field] && (
+      <p id={`auth-${field}-error`} className="mt-1 text-sm font-semibold text-due-overdue">
+        <span aria-hidden="true">⚠ </span>
+        {errors[field]}
+      </p>
+    );
+
+  return (
+    <div className="min-h-screen">
+      <header className="border-b border-surface-border bg-surface-card">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-end justify-between gap-4 px-4 py-5 sm:px-6">
+          <div>
+            <p className="text-[1.75rem] font-bold leading-tight text-brand-primary">Vibecoding Project Tracker</p>
+            <p className="mt-1 text-sm text-text-muted">Track vibecoding tickets and the AI context behind them.</p>
+          </div>
+          <ThemeToggle />
+        </div>
+      </header>
+
+      <main className="mx-auto grid max-w-4xl gap-6 px-4 py-10 sm:px-6 md:grid-cols-[1fr_18rem]">
+        <section aria-labelledby="auth-heading" className="rounded-lg border border-surface-border bg-surface-card p-6 shadow-sm">
+          <h1 id="auth-heading" ref={headingRef} tabIndex={-1} className="text-xl font-bold focus:outline-none">
+            {isSignUp ? 'Create an account' : 'Sign in'}
+          </h1>
+          <p className="mt-1 text-sm text-text-muted">
+            {isSignUp ? 'New accounts join as Developers.' : 'Sign in to see your board.'}
+          </p>
+
+          <form onSubmit={handleSubmit} noValidate className="mt-4 flex flex-col gap-4">
+            {errors.form && (
+              <p role="alert" className="rounded-md border border-due-overdue bg-due-overdue-tint p-3 font-semibold">
+                <span aria-hidden="true">⚠ </span>
+                {errors.form}
+              </p>
+            )}
+            {isSignUp && (
+              <Field id="auth-name" label="Name">
+                <input {...fieldProps('name')} type="text" autoComplete="name" />
+                {fieldError('name')}
+              </Field>
+            )}
+            <Field id="auth-email" label="Email">
+              <input {...fieldProps('email')} type="email" autoComplete={isSignUp ? 'email' : 'username'} />
+              {fieldError('email')}
+            </Field>
+            {isSignUp && (
+              <Field id="auth-githubUsername" label="GitHub username (optional)">
+                <input {...fieldProps('githubUsername')} type="text" autoComplete="off" />
+              </Field>
+            )}
+            <Field
+              id="auth-password"
+              label="Password"
+              hint={isSignUp ? `At least ${MIN_PASSWORD_LENGTH} characters.` : undefined}
+            >
+              <input
+                {...fieldProps('password')}
+                type="password"
+                autoComplete={isSignUp ? 'new-password' : 'current-password'}
+              />
+              {fieldError('password')}
+            </Field>
+            {isSignUp && (
+              <Field id="auth-confirm" label="Confirm password">
+                <input {...fieldProps('confirm')} type="password" autoComplete="new-password" />
+                {fieldError('confirm')}
+              </Field>
+            )}
+
+            <button type="submit" disabled={busy} className={`${buttonPrimary} inline-flex items-center justify-center gap-2 disabled:opacity-70`}>
+              {isSignUp ? <UserPlus size={20} aria-hidden="true" /> : <LogIn size={20} aria-hidden="true" />}
+              {busy ? 'Please wait…' : isSignUp ? 'Create account' : 'Sign in'}
+            </button>
+          </form>
+
+          <p className="mt-4 text-sm">
+            {isSignUp ? 'Already have an account? ' : 'New here? '}
+            <button
+              type="button"
+              onClick={() => switchMode(isSignUp ? 'signin' : 'signup')}
+              className="font-semibold text-brand-accent underline"
+            >
+              {isSignUp ? 'Sign in' : 'Create an account'}
+            </button>
+          </p>
+        </section>
+
+        <aside aria-labelledby="demo-heading" className="rounded-lg border border-surface-border bg-surface-card p-6">
+          <h2 id="demo-heading" className="text-lg font-bold">Demo accounts</h2>
+          <p className="mt-1 text-sm text-text-muted">
+            Password for each: <span className="font-mono">{DEMO_PASSWORD}</span>. Roles change what you can do.
+          </p>
+          <ul className="mt-3 flex flex-col gap-2">
+            {USERS.map((user) => (
+              <li key={user.id}>
+                <button
+                  type="button"
+                  onClick={() => fillDemo(user)}
+                  className="flex w-full items-center gap-3 rounded-md border border-surface-border p-2 text-left hover:border-brand-accent"
+                >
+                  <OwnerAvatar task={{ assignedUserId: user.id }} />
+                  <span className="min-w-0">
+                    <span className="block font-semibold">{user.name}</span>
+                    <span className="block text-sm text-text-muted">{findById(ROLES, user.roleId)?.name}</span>
+                  </span>
+                  <span className="sr-only">: fill in this account</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      </main>
+    </div>
+  );
+}
+
+/** Signed-in user, their role, and the sign-out button for the header. */
+function AccountMenu({ user, onSignOut }) {
+  return (
+    <div className="flex items-end gap-3">
+      <div className="flex items-center gap-2">
+        <OwnerAvatar task={{ assignedUserId: user.id }} />
+        <div className="text-sm">
+          <p className="font-semibold">
+            <span className="sr-only">Signed in as </span>
+            {user.name}
+          </p>
+          <p className="text-text-muted">{findById(ROLES, user.roleId)?.name}</p>
+        </div>
+      </div>
+      <button type="button" onClick={onSignOut} className={`${buttonSecondary} inline-flex items-center gap-2`}>
+        <LogOut size={18} aria-hidden="true" />
+        Sign out
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
+  const [users, setUsers] = useLocalStorage('vibetracker.users', USERS);
+  const [sessionUserId, setSessionUserId] = useLocalStorage('vibetracker.session', null);
+  const currentUser = findById(users, sessionUserId);
+
+  return (
+    <UsersContext.Provider value={users}>
+      {currentUser ? (
+        <Tracker currentUser={currentUser} onSignOut={() => setSessionUserId(null)} />
+      ) : (
+        <LoginScreen
+          users={users}
+          onSignIn={setSessionUserId}
+          onRegister={(user) => {
+            setUsers([...users, user]);
+            setSessionUserId(user.id);
+          }}
+        />
+      )}
+    </UsersContext.Provider>
+  );
+}
+
+function Tracker({ currentUser, onSignOut }) {
+  const users = useUsers();
   const [tasks, setTasks] = useLocalStorage('vibetracker.tasks', seedTasks);
   // Monotonic counter for the next ticket ID — never decremented, so deleted IDs are never reused (PRD §6).
   const [nextTaskNumber, setNextTaskNumber] = useLocalStorage('vibetracker.nextTaskNumber', 6);
@@ -1724,7 +2066,7 @@ export default function App() {
   }
 
   function handOff(taskId, userId) {
-    const user = findById(USERS, userId);
+    const user = findById(users, userId);
     setTasks(
       tasks.map((t) =>
         t.id === taskId ? { ...t, assignedUserId: userId, updatedAt: new Date().toISOString() } : t,
@@ -1758,9 +2100,9 @@ export default function App() {
         {
           ...draft,
           id,
-          aiUsageLog: withUsageLog(draft, null, now),
+          aiUsageLog: withUsageLog(draft, null, now, currentUser.id),
           position: nextPosition(tasks, draft.status),
-          createdBy: USERS[0].id,
+          createdBy: currentUser.id,
           createdAt: now,
           updatedAt: now,
           completedAt: draft.status === 'done' ? now : null,
@@ -1774,7 +2116,7 @@ export default function App() {
           const movedColumn = t.status !== draft.status;
           return {
             ...draft,
-            aiUsageLog: withUsageLog(draft, t, now),
+            aiUsageLog: withUsageLog(draft, t, now, currentUser.id),
             position: movedColumn ? nextPosition(tasks, draft.status) : t.position,
             updatedAt: now,
             completedAt: draft.status === 'done' ? t.completedAt ?? now : null,
@@ -1786,7 +2128,11 @@ export default function App() {
     closeModal();
   }
 
+  const canDelete = can(currentUser, PERMISSIONS.deleteTicket);
+  const canEditDeliverables = can(currentUser, PERMISSIONS.editDeliverables);
+
   function deleteTask(id) {
+    if (!canDelete) return;
     setTasks(tasks.filter((t) => t.id !== id));
     setToast(`${id} deleted.`);
     closeModal();
@@ -1914,6 +2260,7 @@ export default function App() {
   const [anchors, setAnchors] = useLocalStorage('vibetracker.anchors', {});
 
   function saveAnchor(id, url) {
+    if (!canEditDeliverables) return;
     setAnchors({ ...anchors, [id]: url });
     const { name } = findById(DELIVERABLES, id);
     setToast(url ? `${name} link saved.` : `${name} link removed.`);
@@ -1940,6 +2287,7 @@ export default function App() {
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-4">
+            <AccountMenu user={currentUser} onSignOut={onSignOut} />
             <ThemeToggle />
             <button
               ref={newButtonRef}
@@ -1964,7 +2312,7 @@ export default function App() {
         />
 
         <div role="tabpanel" id="panel-deliverables" aria-labelledby="tab-deliverables" hidden={view !== 'deliverables'}>
-          <AnchorBoard anchors={anchors} tasks={tasks} onSave={saveAnchor} />
+          <AnchorBoard anchors={anchors} tasks={tasks} canEdit={canEditDeliverables} onSave={saveAnchor} />
         </div>
 
         <div role="tabpanel" id="panel-board" aria-labelledby="tab-board" hidden={view !== 'board'}>
@@ -2017,7 +2365,14 @@ export default function App() {
       </main>
 
       {editing && (
-        <TaskModal task={editing} now={now} onSave={saveTask} onDelete={deleteTask} onClose={closeModal} />
+        <TaskModal
+          task={editing}
+          now={now}
+          canDelete={canDelete}
+          onSave={saveTask}
+          onDelete={deleteTask}
+          onClose={closeModal}
+        />
       )}
 
       <p role="status" aria-live="polite" className="sr-only">

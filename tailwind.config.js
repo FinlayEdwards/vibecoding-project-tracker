@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-// Tokens from DESIGN.md §2–3. Contrast ratios are documented there.
+// Lineage tokens. Each decision and its contrast ratio is justified in docs/design-rationale.html.
 // Each colour is a CSS variable (src/index.css) so light and dark themes share one set of class names.
 const token = (name) => `rgb(var(--${name}) / <alpha-value>)`;
 
@@ -9,13 +9,15 @@ export default {
     extend: {
       colors: {
         brand: {
-          primary: token('brand-primary'), // header, "+" button, focus rings
-          accent: token('brand-accent'),   // hover states, links
+          primary: token('brand-primary'), // ink: primary buttons, selected tab
+          accent: token('brand-accent'),   // indigo: focus rings, links, drop targets
         },
         surface: {
           page: token('surface-page'),
           card: token('surface-card'),
-          border: token('surface-border'), // meets 3:1 non-text contrast in both themes
+          subtle: token('surface-subtle'),     // column wells, hover fills
+          hairline: token('surface-hairline'), // decorative dividers only
+          border: token('surface-border'),     // control borders: meets 3:1 non-text contrast in both themes
         },
         text: {
           primary: token('text-primary'),
@@ -38,11 +40,12 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['"Atkinson Hyperlegible Next"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        mono: ['"Atkinson Hyperlegible Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
-      minHeight: { target: '44px' },
-      minWidth: { target: '44px' },
+      // 36px controls, 32px icon buttons: compact, still above WCAG 2.5.8's 24px minimum.
+      minHeight: { target: '2.25rem', 'target-sm': '2rem' },
+      minWidth: { target: '2.25rem', 'target-sm': '2rem' },
     },
   },
   plugins: [],

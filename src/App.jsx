@@ -57,9 +57,9 @@ import {
 } from 'lucide-react';
 
 /**
- * Vibecoding Project Tracker.
+ * Lineage — vibecoding project tracker.
  *
- * Data model follows PRD §6; visual tokens follow DESIGN.md / tailwind.config.js.
+ * Data model follows PRD §6; visual tokens follow tailwind.config.js, justified in docs/design-rationale.html.
  *
  * Build sequence (Phase 3):
  *   - M4  data-model    : four columns + seeded tickets.            ✓
@@ -143,12 +143,10 @@ const typeStyle = (typeId) => findById(TASK_TYPES, typeId) ?? TASK_TYPES[1];
 
 /** Icon + label badge for a ticket type; used on cards and in the modal. */
 function TypeBadge({ type }) {
-  const { label, Icon, text, border } = typeStyle(type);
+  const { label, Icon, text } = typeStyle(type);
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-md border bg-surface-card px-2 py-0.5 text-sm font-semibold ${text} ${border}`}
-    >
-      <Icon size={16} strokeWidth={2.25} aria-hidden="true" />
+    <span className="inline-flex items-center gap-1 text-xs font-medium text-text-muted">
+      <Icon size={14} strokeWidth={2} aria-hidden="true" className={text} />
       {label}
     </span>
   );
@@ -239,13 +237,14 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
 // Each state has its own icon shape and text label, so urgency never relies on colour alone (DESIGN.md §2).
+// Urgent states get a pale pill; calm states are plain muted text, so only problems draw the eye.
 const DUE_STATES = {
-  overdue: { Icon: OctagonAlert,  card: 'bg-due-overdue-tint', badge: 'bg-due-overdue' },
-  warning: { Icon: AlarmClock,    card: 'bg-due-warning-tint', badge: 'bg-due-warning' },
-  soon:    { Icon: Clock,         card: 'bg-due-soon-tint',    badge: 'bg-due-soon' },
-  safe:    { Icon: CalendarCheck, card: 'bg-surface-card',     badge: 'bg-due-safe' },
-  done:    { Icon: CircleCheck,   card: 'bg-due-neutral-tint', badge: 'bg-due-neutral' },
-  none:    { Icon: CalendarX,     card: 'bg-surface-card',     badge: null },
+  overdue: { Icon: OctagonAlert,  pill: 'bg-due-overdue-tint text-due-overdue', icon: '' },
+  warning: { Icon: AlarmClock,    pill: 'bg-due-warning-tint text-due-warning', icon: '' },
+  soon:    { Icon: Clock,         pill: 'bg-due-soon-tint text-due-soon',       icon: '' },
+  safe:    { Icon: CalendarCheck, pill: null, icon: 'text-due-safe' },
+  done:    { Icon: CircleCheck,   pill: null, icon: 'text-due-neutral' },
+  none:    { Icon: CalendarX,     pill: null, icon: '' },
 };
 
 /** 'YYYY-MM-DD' → end of that day in local time; a ticket is due any time on its due date. */
@@ -292,25 +291,25 @@ function useNow(intervalMs = 60 * 1000) {
 const formatDueDate = (dueDate) =>
   endOfDueDay(dueDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
-/** Urgency badge: filled colour + icon + concrete label, with the due date beside it. */
+/** Urgency label: icon + concrete label (a tinted pill when urgent), with the due date beside it. */
 function DueBadge({ task, now }) {
   const { state, label } = dueStatus(task, now);
-  const { Icon, badge } = DUE_STATES[state];
+  const { Icon, pill, icon } = DUE_STATES[state];
   return (
-    <p className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-      {badge ? (
-        <span className={`inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-0.5 font-semibold text-on-fill ${badge}`}>
-          <Icon size={16} strokeWidth={2.25} aria-hidden="true" />
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      {pill ? (
+        <span className={`inline-flex items-center gap-1 rounded border border-transparent px-1.5 py-0.5 font-medium ${pill}`}>
+          <Icon size={13} strokeWidth={2.25} aria-hidden="true" />
           {label}
         </span>
       ) : (
         <span className="inline-flex items-center gap-1 text-text-muted">
-          <Icon size={16} aria-hidden="true" />
+          <Icon size={13} aria-hidden="true" className={icon} />
           {label}
         </span>
       )}
       {task.dueDate && state !== 'done' && (
-        <span className="text-text-muted">
+        <span className="tabular-nums text-text-muted">
           <span className="sr-only">Due date: </span>
           <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
         </span>
@@ -525,9 +524,9 @@ function CopyContextButton({ task, onResult, className = '' }) {
       type="button"
       onClick={handleClick}
       aria-label={`Copy context for ${id}`}
-      className={`inline-flex min-h-target items-center gap-2 rounded-md border border-brand-primary bg-surface-card px-3 text-sm font-semibold text-brand-primary hover:bg-surface-page ${className}`}
+      className={`inline-flex min-h-target-sm items-center gap-1.5 rounded-md border border-surface-hairline bg-surface-card px-2.5 text-xs font-medium text-text-primary shadow-sm hover:bg-surface-subtle ${className}`}
     >
-      <Copy size={16} aria-hidden="true" />
+      <Copy size={14} aria-hidden="true" />
       Copy context
     </button>
   );
@@ -593,24 +592,28 @@ function nextPosition(tasks, status) {
   return positions.length ? Math.max(...positions) + 1 : 0;
 }
 
+// 16px text on small screens stops iOS zooming into the field; 14px from sm up.
 const inputClass =
-  'mt-1 block min-h-target w-full rounded-md border border-surface-border bg-surface-card px-3 py-2 text-base text-text-primary';
+  'mt-1.5 block min-h-target w-full rounded-md border border-surface-border bg-surface-card px-3 py-1.5 text-base text-text-primary shadow-sm placeholder:text-text-muted sm:text-sm';
 
-const buttonPrimary =
-  'min-h-target rounded-md bg-brand-primary px-4 py-2 font-semibold text-on-fill hover:bg-brand-accent';
-const buttonSecondary =
-  'min-h-target rounded-md border border-surface-border bg-surface-card px-4 py-2 font-semibold text-text-primary hover:border-brand-accent hover:text-brand-accent';
-const buttonDanger =
-  'min-h-target rounded-md border border-due-overdue bg-surface-card px-4 py-2 font-semibold text-due-overdue hover:bg-due-overdue-tint';
+// Native selects ignore vertical padding inconsistently, so they get a fixed height and a drawn chevron
+// (.select-chevron in index.css) with the same right inset as the text's left inset.
+const selectClass =
+  'select-chevron mt-1.5 block h-9 w-full appearance-none rounded-md border border-surface-border bg-surface-card pl-3 pr-9 text-base text-text-primary shadow-sm sm:text-sm';
+
+const buttonBase = 'min-h-target rounded-md px-3.5 text-sm font-medium';
+const buttonPrimary = `${buttonBase} bg-brand-primary text-on-fill shadow-sm hover:bg-brand-primary/85`;
+const buttonSecondary = `${buttonBase} border border-surface-hairline bg-surface-card text-text-primary shadow-sm hover:bg-surface-subtle`;
+const buttonDanger = `${buttonBase} border border-surface-hairline bg-surface-card text-due-overdue shadow-sm hover:border-due-overdue/40 hover:bg-due-overdue-tint`;
 
 function Field({ id, label, hint, children }) {
   return (
     <div>
-      <label htmlFor={id} className="block font-semibold">
+      <label htmlFor={id} className="block text-sm font-medium">
         {label}
       </label>
       {hint && (
-        <p id={`${id}-hint`} className="text-sm text-text-muted">
+        <p id={`${id}-hint`} className="mt-0.5 text-xs text-text-muted">
           {hint}
         </p>
       )}
@@ -624,7 +627,7 @@ function OptionalSelect({ id, value, onChange, options, emptyLabel }) {
   return (
     <select
       id={id}
-      className={inputClass}
+      className={selectClass}
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value || null)}
     >
@@ -684,34 +687,34 @@ function ContextSection({ draft, setDraft, now }) {
     return () => clearTimeout(timer);
   }, [copyMessage]);
   return (
-    <section aria-labelledby="context-heading" className="rounded-md border border-surface-border p-4">
+    <section aria-labelledby="context-heading" className="rounded-lg border border-surface-hairline bg-surface-page p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 id="context-heading" className="text-lg font-bold">
+          <h3 id="context-heading" className="text-sm font-semibold">
             Context
           </h3>
-          <p id="task-context-updated" className="text-sm text-text-muted">
+          <p id="task-context-updated" className="text-xs text-text-muted">
             {draft.contextUpdatedAt ? `Last updated ${timeAgo(draft.contextUpdatedAt, now)}` : 'Not edited yet'}
           </p>
         </div>
         <CopyContextButton task={draft} onResult={setCopyMessage} />
       </div>
-      <p role="status" className="mt-2 text-sm font-semibold text-brand-primary empty:hidden">
+      <p role="status" className="mt-2 text-xs font-medium text-brand-accent empty:hidden">
         {copyMessage}
       </p>
 
-      <div className="mt-2 grid gap-4 md:grid-cols-2">
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div>
-          <label htmlFor="task-context" className="block font-semibold">
+          <label htmlFor="task-context" className="block text-sm font-medium">
             AI context (Markdown)
           </label>
-          <p id="task-context-hint" className="text-sm text-text-muted">
+          <p id="task-context-hint" className="mt-0.5 text-xs text-text-muted">
             A paste-ready briefing: what the next AI session needs to pick this up.
           </p>
           <textarea
             id="task-context"
             rows={12}
-            className={`${inputClass} font-mono text-sm`}
+            className={`${inputClass} font-mono text-[0.8125rem] leading-relaxed sm:text-[0.8125rem]`}
             value={draft.aiContext}
             onChange={(e) =>
               setDraft((d) => ({ ...d, aiContext: e.target.value, contextUpdatedAt: new Date().toISOString() }))
@@ -721,16 +724,16 @@ function ContextSection({ draft, setDraft, now }) {
         </div>
 
         <div className="flex min-w-0 flex-col">
-          <p id="context-preview-label" className="font-semibold">
+          <p id="context-preview-label" className="text-sm font-medium">
             Preview
           </p>
-          <p className="text-sm text-text-muted">How the context reads once rendered.</p>
+          <p className="mt-0.5 text-xs text-text-muted">How the context reads once rendered.</p>
           {/* Focusable so keyboard users can scroll a long preview. */}
           <div
             role="region"
             aria-labelledby="context-preview-label"
             tabIndex={0}
-            className="markdown mt-1 max-h-80 min-h-40 flex-1 overflow-auto rounded-md border border-surface-border bg-surface-page p-3"
+            className="markdown mt-1.5 max-h-80 min-h-40 flex-1 overflow-auto rounded-md border border-surface-hairline bg-surface-card p-3"
           >
             {draft.aiContext.trim() ? (
               <ReactMarkdown components={markdownComponents}>{draft.aiContext}</ReactMarkdown>
@@ -755,11 +758,11 @@ function ContextSection({ draft, setDraft, now }) {
 
       {history.length > 0 && (
         <div className="mt-4">
-          <h4 className="font-semibold">AI tool history</h4>
-          <ol className="mt-1 flex flex-col gap-1 text-sm">
+          <h4 className="text-sm font-medium">AI tool history</h4>
+          <ol className="mt-1.5 flex flex-col gap-1 text-xs">
             {history.map((entry) => (
               <li key={entry.id} className="flex flex-wrap gap-x-2">
-                <span className="font-semibold">{findById(AI_TOOLS, entry.aiToolId)?.name ?? 'Unknown tool'}</span>
+                <span className="font-medium">{findById(AI_TOOLS, entry.aiToolId)?.name ?? 'Unknown tool'}</span>
                 <span className="text-text-muted">
                   {findById(users, entry.usedBy)?.name ?? 'Someone'} · {timeAgo(entry.loggedAt, now)}
                 </span>
@@ -824,18 +827,18 @@ function TaskModal({ task, now, canDelete, onSave, onDelete, onClose }) {
         e.preventDefault();
         onClose();
       }}
-      className="w-[calc(100%-2rem)] max-w-[960px] rounded-lg bg-surface-card p-0 text-text-primary"
+      className="w-[calc(100%-2rem)] max-w-[880px] rounded-xl border border-surface-hairline bg-surface-card p-0 text-text-primary shadow-2xl"
     >
-      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4 p-6">
+      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 id="task-modal-heading" className="text-xl font-bold">
+            <h2 id="task-modal-heading" className="text-lg font-semibold tracking-tight">
               {heading}
             </h2>
             <TypeBadge type={draft.type} />
           </div>
           <button type="button" onClick={onClose} aria-label="Close without saving" className={iconButton}>
-            <X size={20} aria-hidden="true" />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 
@@ -853,7 +856,7 @@ function TaskModal({ task, now, canDelete, onSave, onDelete, onClose }) {
             aria-describedby={titleError ? 'task-title-error' : undefined}
           />
           {titleError && (
-            <p id="task-title-error" className="mt-1 font-semibold text-due-overdue">
+            <p id="task-title-error" className="mt-1.5 text-sm font-medium text-due-overdue">
               <span aria-hidden="true">⚠ </span>
               {titleError}
             </p>
@@ -872,15 +875,15 @@ function TaskModal({ task, now, canDelete, onSave, onDelete, onClose }) {
 
         {/* Radio cards rather than a select, so both options and their icons are always visible. */}
         <fieldset>
-          <legend className="font-semibold">Type</legend>
-          <div className="mt-1 grid gap-3 sm:grid-cols-2">
-            {TASK_TYPES.map(({ id, label, Icon, text, border }) => {
+          <legend className="text-sm font-medium">Type</legend>
+          <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+            {TASK_TYPES.map(({ id, label, Icon, text }) => {
               const checked = draft.type === id;
               return (
                 <label
                   key={id}
-                  className={`flex min-h-target cursor-pointer items-center gap-2 rounded-md border-2 px-3 py-2 font-semibold has-[:focus-visible]:outline has-[:focus-visible]:outline-[3px] has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand-primary ${
-                    checked ? `${border} ${text} bg-surface-page` : 'border-surface-border text-text-primary'
+                  className={`flex min-h-target cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand-accent ${
+                    checked ? 'border-brand-primary bg-surface-subtle ring-1 ring-brand-primary' : 'border-surface-hairline hover:bg-surface-subtle'
                   }`}
                 >
                   <input
@@ -889,9 +892,9 @@ function TaskModal({ task, now, canDelete, onSave, onDelete, onClose }) {
                     value={id}
                     checked={checked}
                     onChange={() => set('type')(id)}
-                    className="h-5 w-5 accent-brand-primary focus-visible:outline-none"
+                    className="h-4 w-4 accent-brand-primary focus-visible:outline-none"
                   />
-                  <Icon size={20} strokeWidth={2.25} aria-hidden="true" />
+                  <Icon size={16} strokeWidth={2} aria-hidden="true" className={text} />
                   {label}
                 </label>
               );
@@ -903,7 +906,7 @@ function TaskModal({ task, now, canDelete, onSave, onDelete, onClose }) {
           <Field id="task-status" label="Status">
             <select
               id="task-status"
-              className={inputClass}
+              className={selectClass}
               value={draft.status}
               onChange={(e) => set('status')(e.target.value)}
             >
@@ -964,12 +967,12 @@ function TaskModal({ task, now, canDelete, onSave, onDelete, onClose }) {
           <div
             key="confirm-delete"
             role="alert"
-            className="rounded-md border border-due-overdue bg-due-overdue-tint p-4"
+            className="rounded-lg border border-due-overdue/30 bg-due-overdue-tint p-4"
           >
-            <p className="font-semibold">
+            <p className="text-sm font-medium">
               Delete {task.id}? This can't be undone, and the ID won't be reused.
             </p>
-            <div className="mt-3 flex flex-wrap gap-3">
+            <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" className={buttonDanger} onClick={() => onDelete(task.id)}>
                 Yes, delete {task.id}
               </button>
@@ -981,7 +984,7 @@ function TaskModal({ task, now, canDelete, onSave, onDelete, onClose }) {
         ) : (
           // Separate keys stop React reusing "Keep ticket" as the submit button mid-click,
           // which would save and close the modal instead of just cancelling the delete.
-          <div key="actions" className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-border pt-4">
+          <div key="actions" className="-mx-6 -mb-6 flex flex-wrap items-center justify-between gap-3 rounded-b-xl border-t border-surface-hairline bg-surface-page px-6 py-4">
             {isNew ? (
               <span />
             ) : canDelete ? (
@@ -989,12 +992,12 @@ function TaskModal({ task, now, canDelete, onSave, onDelete, onClose }) {
                 Delete
               </button>
             ) : (
-              <p className="flex items-center gap-1 text-sm text-text-muted">
-                <Lock size={16} aria-hidden="true" />
+              <p className="flex items-center gap-1.5 text-xs text-text-muted">
+                <Lock size={14} aria-hidden="true" />
                 Only {rolesWith(PERMISSIONS.deleteTicket)} can delete tickets.
               </p>
             )}
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2">
               <button type="button" className={buttonSecondary} onClick={onClose}>
                 Cancel
               </button>
@@ -1009,8 +1012,9 @@ function TaskModal({ task, now, canDelete, onSave, onDelete, onClose }) {
   );
 }
 
+// Ghost icon button: no chrome at rest, a subtle fill on hover. 32px, above WCAG 2.5.8's 24px.
 const iconButton =
-  'inline-flex min-h-target min-w-target items-center justify-center rounded-md border border-surface-border bg-surface-card text-text-primary hover:border-brand-accent hover:text-brand-accent disabled:cursor-not-allowed disabled:opacity-40';
+  'inline-flex min-h-target-sm min-w-target-sm items-center justify-center rounded-md text-text-muted hover:bg-surface-subtle hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40';
 
 /**
  * M12 secret-sauce: a draggable card. Dragging starts only from the grip handle, which
@@ -1036,9 +1040,9 @@ function SortableTaskCard(props) {
             {...attributes}
             {...listeners}
             aria-label={`Move ${task.id}`}
-            className={`${iconButton} relative z-10 cursor-grab touch-none active:cursor-grabbing`}
+            className={`${iconButton} relative z-10 -ml-1.5 cursor-grab touch-none active:cursor-grabbing`}
           >
-            <GripVertical size={20} aria-hidden="true" />
+            <GripVertical size={16} aria-hidden="true" />
           </button>
         }
       />
@@ -1046,24 +1050,8 @@ function SortableTaskCard(props) {
   );
 }
 
-/**
- * Silver foil outline (inspired by React Bits' Holo Card): feeds the pointer position into
- * CSS variables that steer the foil gradient and glare in index.css. Written straight
- * to the element's style so pointer moves don't re-render React.
- */
-function trackHolo(e) {
-  const el = e.currentTarget;
-  const rect = el.getBoundingClientRect();
-  const x = (e.clientX - rect.left) / rect.width;
-  const y = (e.clientY - rect.top) / rect.height;
-  el.style.setProperty('--holo-x', `${x * 100}%`);
-  el.style.setProperty('--holo-y', `${y * 100}%`);
-  el.style.setProperty('--holo-angle', `${(x + y) * 180}deg`);
-}
-
 function TaskCard({ task, now, onOpen, onHandOff, onCopied, onMove, onMoveColumn, justHandedOff, isFirst, isLast, isDragging, dragHandle, collapsed, onToggleCollapsed }) {
   const assignee = assigneeLabel(task, useUsers());
-  const tint = DUE_STATES[dueStatus(task, now).state].card;
   const stageIndex = STAGES.findIndex((s) => s.id === task.status);
   const prevStage = STAGES[stageIndex - 1];
   const nextStage = STAGES[stageIndex + 1];
@@ -1081,23 +1069,23 @@ function TaskCard({ task, now, onOpen, onHandOff, onCopied, onMove, onMoveColumn
       aria-label={`${collapsed ? 'Show' : 'Hide'} details for ${task.id}`}
       title={collapsed ? 'Show details' : 'Hide details'}
       onClick={() => onToggleCollapsed(task.id)}
-      className={`${iconButton} relative z-10 shrink-0`}
+      className={`${iconButton} relative z-10 -mr-1.5 shrink-0`}
     >
       <ChevronDown
-        size={20}
+        size={16}
         aria-hidden="true"
         className={`motion-safe:transition-transform ${collapsed ? '-rotate-90' : ''}`}
       />
     </button>
   );
   const title = (
-    <h3 id={`${task.id}-title`} className={`${collapsed ? 'min-w-0 flex-1' : 'mt-2'} text-base font-semibold leading-snug`}>
+    <h3 id={`${task.id}-title`} className={`${collapsed ? 'min-w-0 flex-1 truncate' : 'mt-1'} text-sm font-medium leading-snug`}>
       {/* The ::after overlay makes the whole card the click target while keeping one tab stop. */}
       <button
         type="button"
         onClick={(e) => onOpen(task, e.currentTarget)}
         aria-label={`Edit ${task.id}: ${task.title}`}
-        className="text-left after:absolute after:inset-0 after:rounded-md focus-visible:outline-none focus-visible:after:outline focus-visible:after:outline-[3px] focus-visible:after:outline-offset-2 focus-visible:after:outline-brand-primary"
+        className="text-left after:absolute after:inset-0 after:rounded-lg focus-visible:outline-none focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-brand-accent"
       >
         {task.title}
       </button>
@@ -1106,83 +1094,79 @@ function TaskCard({ task, now, onOpen, onHandOff, onCopied, onMove, onMoveColumn
   return (
     <article
       aria-labelledby={`${task.id}-title`}
-      onPointerMove={trackHolo}
       data-dragging={isDragging || undefined}
-      className={`holo-outline relative rounded-lg border border-l-4 border-surface-border shadow-sm ${collapsed ? 'p-2' : 'p-4'} ${tint} ${typeStyle(task.type).stripe} ${
-        isDragging ? 'shadow-xl motion-safe:rotate-1' : ''
+      className={`card relative rounded-lg border bg-surface-card ${collapsed ? 'px-3 py-1.5' : 'p-3'} ${
+        isDragging
+          ? 'border-surface-border shadow-xl motion-safe:rotate-1'
+          : 'border-surface-hairline shadow-sm hover:border-surface-border/60'
       }`}
     >
       {collapsed ? (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {dragHandle}
           {title}
           {collapseToggle}
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               {dragHandle}
-              <p className="font-mono text-sm text-text-muted">{task.id}</p>
-            </div>
-            <div className="flex items-center gap-2">
+              <p className="font-mono text-xs text-text-muted">{task.id}</p>
               <TypeBadge type={task.type} />
-              {collapseToggle}
             </div>
+            {collapseToggle}
           </div>
           {title}
         </>
       )}
       <div id={detailsId} hidden={collapsed}>
-        <DueBadge task={task} now={now} />
-        <div className="mt-3 flex items-center gap-2">
-          <OwnerAvatar task={task} />
-          <p className="min-w-0 text-sm font-semibold">
-            <span className="sr-only">Assigned to </span>
-            {assignee}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <DueBadge task={task} now={now} />
+          <p className="flex min-w-0 items-center gap-1.5 text-xs text-text-muted">
+            <OwnerAvatar task={task} />
+            <span className="truncate">
+              <span className="sr-only">Assigned to </span>
+              {assignee}
+            </span>
           </p>
         </div>
         {task.deliverableId && (
-          <p className="mt-2 flex items-center gap-1 text-sm text-text-muted">
-            <Package size={16} aria-hidden="true" />
+          <p className="mt-2 flex items-center gap-1 text-xs text-text-muted">
+            <Package size={13} aria-hidden="true" />
             Deliverable: {findById(DELIVERABLES, task.deliverableId)?.name}
           </p>
         )}
         {justHandedOff && (
-          <p className="mt-2 flex items-center gap-1 text-sm font-semibold text-brand-primary">
-            <ArrowRightLeft size={16} aria-hidden="true" />
+          <p className="mt-2 flex items-center gap-1 text-xs font-medium text-brand-accent">
+            <ArrowRightLeft size={13} aria-hidden="true" />
             Handed off just now
           </p>
         )}
         {/* relative z-10 lifts the controls above the card's full-size edit button. */}
-        <div className="relative z-10 mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-surface-border pt-3">
-          <div className="flex flex-wrap gap-2">
-            <CopyContextButton task={task} onResult={onCopied} />
+        <div className="relative z-10 mt-3 flex flex-wrap items-center justify-between gap-1.5 border-t border-surface-hairline pt-2.5">
+          <CopyContextButton task={task} onResult={onCopied} />
+          <div className="card-secondary flex items-center">
             <button
               ref={handOffButtonRef}
               type="button"
               aria-expanded={handOffOpen}
               aria-controls={handOffPanelId}
               onClick={() => setHandOffOpen(!handOffOpen)}
-              className={`inline-flex min-h-target items-center gap-2 rounded-md border px-3 text-sm font-semibold hover:border-brand-accent hover:text-brand-accent ${
-                handOffOpen
-                  ? 'border-brand-primary bg-surface-page text-brand-primary'
-                  : 'border-surface-border bg-surface-card text-text-primary'
-              }`}
+              title="Hand off"
+              className={`${iconButton} ${handOffOpen ? 'bg-surface-subtle text-text-primary' : ''}`}
             >
-              <ArrowRightLeft size={16} aria-hidden="true" />
-              Hand off
-              <span className="sr-only"> {task.id}</span>
+              <ArrowRightLeft size={15} aria-hidden="true" />
+              <span className="sr-only">Hand off {task.id}</span>
             </button>
-          </div>
-          {/* Single-pointer alternative to dragging, across columns too (WCAG 2.5.7). */}
-          <div role="group" aria-label={`Move ${task.id}`} className="flex">
+            <span aria-hidden="true" className="mx-1 h-4 w-px bg-surface-hairline" />
+            {/* Single-pointer alternative to dragging, across columns too (WCAG 2.5.7). */}
+            <div role="group" aria-label={`Move ${task.id}`} className="flex">
             <MoveButton
               label={prevStage ? `Move ${task.id} to ${prevStage.label}` : `${task.id} is in the first column`}
               disabled={!prevStage}
               onClick={() => onMoveColumn(task.id, prevStage.id)}
               Icon={ArrowLeft}
-              className="rounded-l-md"
             />
             <MoveButton
               label={`Move ${task.id} up`}
@@ -1201,12 +1185,12 @@ function TaskCard({ task, now, onOpen, onHandOff, onCopied, onMove, onMoveColumn
               disabled={!nextStage}
               onClick={() => onMoveColumn(task.id, nextStage.id)}
               Icon={ArrowRight}
-              className="rounded-r-md"
             />
+            </div>
           </div>
         </div>
         {handOffOpen && (
-          <div id={handOffPanelId} className="relative z-10 mt-3">
+          <div id={handOffPanelId} className="relative z-10 mt-2">
             <HandOff
               task={task}
               onHandOff={(...args) => {
@@ -1231,9 +1215,9 @@ function MoveButton({ label, disabled, onClick, Icon, className = '' }) {
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`-ml-px inline-flex min-h-target min-w-target items-center justify-center border border-surface-border bg-surface-card text-text-primary first:ml-0 hover:z-10 hover:border-brand-accent hover:text-brand-accent focus-visible:z-10 disabled:cursor-not-allowed disabled:text-text-muted disabled:opacity-50 ${className}`}
+      className={`inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-surface-subtle hover:text-text-primary focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent ${className}`}
     >
-      <Icon size={18} aria-hidden="true" />
+      <Icon size={15} aria-hidden="true" />
     </button>
   );
 }
@@ -1252,26 +1236,26 @@ function initials(name) {
  * Owner avatar: initials for a person, a group icon for a team-only ticket,
  * a dashed outline when unassigned. Decorative — the name beside it is the label.
  */
-function OwnerAvatar({ task, size = 'h-9 w-9' }) {
+function OwnerAvatar({ task, size = 'h-6 w-6 text-[0.625rem]' }) {
   const user = findById(useUsers(), task.assignedUserId);
-  const base = `flex ${size} shrink-0 items-center justify-center rounded-full font-bold`;
+  const base = `flex ${size} shrink-0 items-center justify-center rounded-full font-semibold`;
   if (user) {
     return (
-      <span aria-hidden="true" className={`${base} bg-brand-primary text-sm text-on-fill`}>
+      <span aria-hidden="true" className={`${base} border border-surface-hairline bg-surface-subtle text-text-primary`}>
         {initials(user.name)}
       </span>
     );
   }
   if (task.assignedTeamId) {
     return (
-      <span aria-hidden="true" className={`${base} border-2 border-brand-primary text-brand-primary`}>
-        <Users size={18} />
+      <span aria-hidden="true" className={`${base} border border-surface-hairline bg-surface-subtle text-text-muted`}>
+        <Users size={12} />
       </span>
     );
   }
   return (
-    <span aria-hidden="true" className={`${base} border-2 border-dashed border-surface-border text-text-muted`}>
-      <UserX size={18} />
+    <span aria-hidden="true" className={`${base} border border-dashed border-surface-border text-text-muted`}>
+      <UserX size={12} />
     </span>
   );
 }
@@ -1288,15 +1272,15 @@ function HandOff({ task, onHandOff }) {
   const selectRef = useRef(null);
   useEffect(() => selectRef.current?.focus(), []);
   return (
-    <div className="flex flex-wrap items-end gap-2 rounded-md bg-surface-page p-2">
+    <div className="flex flex-wrap items-end gap-2 rounded-md bg-surface-subtle p-2">
       <div className="min-w-0 flex-1">
-        <label htmlFor={selectId} className="block text-sm font-semibold">
+        <label htmlFor={selectId} className="block text-xs font-medium">
           Hand off to…
         </label>
         <select
           id={selectId}
           ref={selectRef}
-          className="mt-1 block min-h-target w-full rounded-md border border-surface-border bg-surface-card px-2 text-sm"
+          className="select-chevron mt-1 block h-8 w-full appearance-none rounded-md border border-surface-border bg-surface-card pl-2.5 pr-8 text-base sm:text-xs"
           value={targetId}
           onChange={(e) => setTargetId(e.target.value)}
         >
@@ -1316,7 +1300,7 @@ function HandOff({ task, onHandOff }) {
           setTargetId('');
         }}
         aria-label={`Hand off ${task.id}`}
-        className="min-h-target rounded-md border border-brand-primary bg-surface-card px-3 text-sm font-semibold text-brand-primary hover:bg-surface-page disabled:cursor-not-allowed disabled:border-surface-border disabled:text-text-muted"
+        className="min-h-target-sm rounded-md bg-brand-primary px-3 text-xs font-medium text-on-fill hover:bg-brand-primary/85 disabled:cursor-not-allowed disabled:opacity-40"
       >
         Hand off
       </button>
@@ -1355,32 +1339,32 @@ function AnchorCard({ deliverable, url, ticketCount, canEdit, onSave }) {
   }
 
   return (
-    <li className="flex flex-col rounded-md border border-surface-border bg-surface-card p-4">
+    <li className="flex flex-col rounded-lg border border-surface-hairline bg-surface-card p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 font-bold">
-          <Icon size={20} aria-hidden="true" />
+        <h3 className="flex items-center gap-2 text-sm font-semibold">
+          <Icon size={16} aria-hidden="true" className="text-text-muted" />
           {name}
         </h3>
         {/* Status uses icon shape + text, not just a coloured dot (WCAG 1.4.1). */}
         {filled ? (
-          <span className="inline-flex items-center gap-1 text-sm font-semibold text-due-safe">
-            <CircleCheck size={16} aria-hidden="true" />
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-due-safe">
+            <CircleCheck size={13} aria-hidden="true" />
             Link added
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1 text-sm text-text-muted">
-            <CircleDashed size={16} aria-hidden="true" />
+          <span className="inline-flex items-center gap-1 text-xs text-text-muted">
+            <CircleDashed size={13} aria-hidden="true" />
             No link yet
           </span>
         )}
       </div>
-      <p className="mt-1 text-sm text-text-muted">
+      <p className="mt-1 text-xs text-text-muted">
         {ticketCount === 0 ? 'No tickets linked' : `${plural(ticketCount, 'ticket')} linked`}
       </p>
 
       {canEdit && (
-        <form onSubmit={handleSubmit} noValidate className="mt-3 flex flex-col gap-2">
-          <label htmlFor={inputId} className="text-sm font-semibold">
+        <form onSubmit={handleSubmit} noValidate className="mt-4 flex flex-col gap-1.5">
+          <label htmlFor={inputId} className="text-xs font-medium">
             {name} link
           </label>
           <div className="flex gap-2">
@@ -1389,7 +1373,7 @@ function AnchorCard({ deliverable, url, ticketCount, canEdit, onSave }) {
               type="url"
               inputMode="url"
               placeholder="https://"
-              className="block min-h-target w-full min-w-0 rounded-md border border-surface-border bg-surface-card px-3 text-sm"
+              className="block min-h-target w-full min-w-0 rounded-md border border-surface-border bg-surface-card px-3 text-base shadow-sm placeholder:text-text-muted sm:text-sm"
               value={value}
               onChange={(e) => {
                 setValue(e.target.value);
@@ -1401,13 +1385,13 @@ function AnchorCard({ deliverable, url, ticketCount, canEdit, onSave }) {
             <button
               type="submit"
               aria-label={`Save ${name} link`}
-              className="min-h-target shrink-0 rounded-md bg-brand-primary px-3 text-sm font-semibold text-on-fill hover:bg-brand-accent"
+              className={`${buttonPrimary} shrink-0`}
             >
               Save
             </button>
           </div>
           {error && (
-            <p id={`${inputId}-error`} className="text-sm font-semibold text-due-overdue">
+            <p id={`${inputId}-error`} className="text-xs font-medium text-due-overdue">
               <span aria-hidden="true">⚠ </span>
               {error}
             </p>
@@ -1420,10 +1404,10 @@ function AnchorCard({ deliverable, url, ticketCount, canEdit, onSave }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1 self-start text-sm font-semibold text-brand-accent underline"
+          className="mt-3 inline-flex items-center gap-1 self-start text-xs font-medium text-brand-accent underline underline-offset-2"
         >
           Open {name}
-          <ExternalLink size={14} aria-hidden="true" />
+          <ExternalLink size={12} aria-hidden="true" />
           <span className="sr-only"> (opens in a new tab)</span>
         </a>
       )}
@@ -1437,20 +1421,20 @@ function AnchorBoard({ anchors, tasks, canEdit, onSave }) {
   return (
     <section aria-labelledby="deliverables-heading" className="mb-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="deliverables-heading" className="text-lg font-bold">
+        <h2 id="deliverables-heading" className="text-base font-semibold tracking-tight">
           Deliverables
         </h2>
-        <p className="text-sm text-text-muted">
+        <p className="text-xs tabular-nums text-text-muted">
           {done} of {DELIVERABLES.length} linked
         </p>
       </div>
       {!canEdit && (
-        <p className="mt-1 flex items-center gap-1 text-sm text-text-muted">
-          <Lock size={16} aria-hidden="true" />
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-text-muted">
+          <Lock size={13} aria-hidden="true" />
           View only: {rolesWith(PERMISSIONS.editDeliverables)} can change deliverable links.
         </p>
       )}
-      <ul className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <ul className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {DELIVERABLES.map((d) => (
           <AnchorCard
             key={d.id}
@@ -1490,7 +1474,7 @@ function ViewTabs({ active, onChange, deliverablesLinked }) {
   }
 
   return (
-    <div role="tablist" aria-label="Views" className="mb-6 flex gap-2 border-b border-surface-border">
+    <div role="tablist" aria-label="Views" className="mb-6 flex gap-5 border-b border-surface-hairline">
       {VIEWS.map(({ id, label, Icon }) => {
         const selected = id === active;
         return (
@@ -1505,16 +1489,16 @@ function ViewTabs({ active, onChange, deliverablesLinked }) {
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(id)}
             onKeyDown={handleKeyDown}
-            className={`-mb-px flex min-h-target items-center gap-2 border-b-4 px-4 text-base ${
+            className={`-mb-px flex min-h-[2.5rem] items-center gap-2 border-b-2 text-sm font-medium ${
               selected
-                ? 'border-brand-primary font-bold text-brand-primary'
-                : 'border-transparent font-semibold text-text-muted hover:text-brand-accent'
+                ? 'border-brand-primary text-text-primary'
+                : 'border-transparent text-text-muted hover:text-text-primary'
             }`}
           >
-            <Icon size={18} aria-hidden="true" />
+            <Icon size={15} aria-hidden="true" />
             {label}
             {id === 'deliverables' && (
-              <span className="rounded-full border border-surface-border px-2 text-sm font-semibold text-text-muted">
+              <span className="rounded bg-surface-subtle px-1.5 text-xs tabular-nums text-text-muted">
                 {deliverablesLinked}/{DELIVERABLES.length}
                 <span className="sr-only"> linked</span>
               </span>
@@ -1557,13 +1541,14 @@ function ThemeToggle() {
   const [choice, setChoice] = useTheme();
   return (
     <fieldset>
-      <legend className="text-sm font-semibold">Theme</legend>
-      <div className="mt-1 flex rounded-md border border-surface-border bg-surface-card p-0.5">
+      <legend className="sr-only">Theme</legend>
+      <div className="flex rounded-md border border-surface-hairline bg-surface-subtle p-0.5">
         {THEMES.map(({ id, label, Icon }) => (
           <label
             key={id}
-            className={`flex min-h-target cursor-pointer items-center gap-1 rounded px-3 text-sm font-semibold has-[:focus-visible]:outline has-[:focus-visible]:outline-[3px] has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand-primary ${
-              choice === id ? 'bg-brand-primary text-on-fill' : 'text-text-primary hover:text-brand-accent'
+            title={`${label} theme`}
+            className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand-accent ${
+              choice === id ? 'bg-surface-card text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'
             }`}
           >
             <input
@@ -1574,8 +1559,8 @@ function ThemeToggle() {
               onChange={() => setChoice(id)}
               className="sr-only"
             />
-            <Icon size={16} aria-hidden="true" />
-            {label}
+            <Icon size={14} aria-hidden="true" />
+            <span className="sr-only">{label}</span>
           </label>
         ))}
       </div>
@@ -1587,24 +1572,24 @@ function ThemeToggle() {
 function DrivingStrip({ tasks }) {
   const users = useUsers();
   return (
-    <section aria-labelledby="driving-heading" className="mb-6">
-      <h2 id="driving-heading" className="text-lg font-bold">
+    <section aria-labelledby="driving-heading" className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <h2 id="driving-heading" className="text-xs font-medium text-text-muted">
         Who's driving
       </h2>
-      <ul className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="flex flex-wrap gap-2">
         {users.map((user) => {
           const driving = tasks.filter((t) => t.assignedUserId === user.id && t.status === 'in-progress');
           return (
             <li
               key={user.id}
-              className="flex items-center gap-3 rounded-md border border-surface-border bg-surface-card p-3"
+              className="flex items-center gap-2 rounded-full border border-surface-hairline bg-surface-card py-1 pl-1 pr-3 text-xs"
             >
               <OwnerAvatar task={{ assignedUserId: user.id }} />
-              <div className="min-w-0">
-                <p className="font-semibold">{user.name}</p>
-                <p className="text-sm text-text-muted">
+              <div className="flex min-w-0 flex-wrap gap-x-1.5">
+                <p className="font-medium">{user.name}</p>
+                <p className="text-text-muted">
                   {driving.length === 0 ? (
-                    'Not driving anything in progress'
+                    'Nothing in progress'
                   ) : (
                     <>
                       Driving{' '}
@@ -1688,9 +1673,9 @@ function CollapseAllButton({ ids, collapsedIds, onSetCollapsed, scope, compact =
       onClick={() => onSetCollapsed(ids, !allCollapsed)}
       aria-label={scope ? `${action} in ${scope}` : undefined}
       title={compact ? `${action} in ${scope}` : undefined}
-      className={`${iconButton} gap-2 ${compact ? '' : 'px-3 text-sm font-semibold'}`}
+      className={`${iconButton} gap-1.5 ${compact ? '' : 'px-2 text-xs font-medium'}`}
     >
-      <Icon size={18} aria-hidden="true" />
+      <Icon size={15} aria-hidden="true" />
       {!compact && action}
     </button>
   );
@@ -1707,14 +1692,14 @@ function Column({ stage, tasks, cardProps }) {
     <section
       ref={setNodeRef}
       aria-labelledby={headingId}
-      className={`flex min-w-0 flex-col rounded-lg border bg-surface-page p-3 ${
-        isOver ? 'border-brand-primary ring-2 ring-brand-primary' : 'border-surface-border'
+      className={`flex min-w-0 flex-col rounded-xl p-2 ${
+        isOver ? 'bg-brand-accent/10 ring-1 ring-brand-accent' : 'bg-surface-subtle/70'
       }`}
     >
-      <div className="flex items-center justify-between gap-2 px-1">
-        <h2 id={headingId} className="flex items-center gap-2 text-lg font-bold">
+      <div className="flex items-center justify-between gap-2 py-0.5 pl-2">
+        <h2 id={headingId} className="flex items-center gap-2 text-sm font-medium">
           {stage.label}
-          <span className="min-w-[2rem] rounded-full border border-surface-border bg-surface-card px-2 text-center text-sm font-semibold text-text-muted">
+          <span className="text-xs tabular-nums text-text-muted">
             {tasks.length}
             <span className="sr-only"> {tasks.length === 1 ? 'ticket' : 'tickets'}</span>
           </span>
@@ -1729,11 +1714,11 @@ function Column({ stage, tasks, cardProps }) {
       </div>
       <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
         {tasks.length === 0 ? (
-          <p className="mt-3 rounded-md border-2 border-dashed border-surface-border p-4 text-sm text-text-muted">
+          <p className="mt-2 rounded-lg border border-dashed border-surface-border/50 p-4 text-center text-xs text-text-muted">
             No tickets in {stage.label} yet. Drag a ticket here or change its status.
           </p>
         ) : (
-          <ul className="mt-3 flex flex-col gap-3">
+          <ul className="mt-2 flex flex-col gap-2">
             {tasks.map((task, index) => (
               <SortableTaskCard
                 key={task.id}
@@ -1775,6 +1760,24 @@ const newSalt = () => toHex(crypto.getRandomValues(new Uint8Array(16)));
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const MIN_PASSWORD_LENGTH = 8;
+
+/**
+ * Lineage wordmark: a commit-graph glyph (a line that branches) beside the name. The glyph is
+ * decorative; the visible name is the accessible text, so it reads the same to everyone.
+ */
+function Logo({ as: Tag = 'p', className = '' }) {
+  return (
+    <Tag className={`flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight ${className}`}>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden="true" className="text-brand-accent">
+        <path d="M7 5v14M7 9c0 5 10 3 10 8" />
+        <circle cx="7" cy="4" r="1.75" fill="currentColor" />
+        <circle cx="7" cy="20" r="1.75" fill="currentColor" />
+        <circle cx="17" cy="19" r="1.75" fill="currentColor" />
+      </svg>
+      Lineage
+    </Tag>
+  );
+}
 
 /** Sign in / create account screen, shown until someone is signed in. */
 function LoginScreen({ users, onSignIn, onRegister }) {
@@ -1863,36 +1866,31 @@ function LoginScreen({ users, onSignIn, onRegister }) {
   });
   const fieldError = (field) =>
     errors[field] && (
-      <p id={`auth-${field}-error`} className="mt-1 text-sm font-semibold text-due-overdue">
+      <p id={`auth-${field}-error`} className="mt-1.5 text-xs font-medium text-due-overdue">
         <span aria-hidden="true">⚠ </span>
         {errors[field]}
       </p>
     );
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-surface-border bg-surface-card">
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-end justify-between gap-4 px-4 py-5 sm:px-6">
-          <div>
-            <p className="text-[1.75rem] font-bold leading-tight text-brand-primary">Vibecoding Project Tracker</p>
-            <p className="mt-1 text-sm text-text-muted">Track vibecoding tickets and the AI context behind them.</p>
-          </div>
-          <ThemeToggle />
-        </div>
+    <div className="flex min-h-screen flex-col">
+      <header className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
+        <Logo />
+        <ThemeToggle />
       </header>
 
-      <main className="mx-auto grid max-w-4xl gap-6 px-4 py-10 sm:px-6 md:grid-cols-[1fr_18rem]">
-        <section aria-labelledby="auth-heading" className="rounded-lg border border-surface-border bg-surface-card p-6 shadow-sm">
-          <h1 id="auth-heading" ref={headingRef} tabIndex={-1} className="text-xl font-bold focus:outline-none">
-            {isSignUp ? 'Create an account' : 'Sign in'}
+      <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-4 pb-16 pt-4">
+        <section aria-labelledby="auth-heading" className="rounded-xl border border-surface-hairline bg-surface-card p-6 shadow-sm sm:p-8">
+          <h1 id="auth-heading" ref={headingRef} tabIndex={-1} className="text-xl font-semibold tracking-tight focus:outline-none">
+            {isSignUp ? 'Create your account' : 'Sign in to Lineage'}
           </h1>
           <p className="mt-1 text-sm text-text-muted">
-            {isSignUp ? 'New accounts join as Developers.' : 'Sign in to see your board.'}
+            {isSignUp ? 'New accounts join as Developers.' : 'Every task, with the context that built it.'}
           </p>
 
-          <form onSubmit={handleSubmit} noValidate className="mt-4 flex flex-col gap-4">
+          <form onSubmit={handleSubmit} noValidate className="mt-6 flex flex-col gap-4">
             {errors.form && (
-              <p role="alert" className="rounded-md border border-due-overdue bg-due-overdue-tint p-3 font-semibold">
+              <p role="alert" className="rounded-md border border-due-overdue/30 bg-due-overdue-tint p-3 text-sm font-medium text-due-overdue">
                 <span aria-hidden="true">⚠ </span>
                 {errors.form}
               </p>
@@ -1931,47 +1929,50 @@ function LoginScreen({ users, onSignIn, onRegister }) {
               </Field>
             )}
 
-            <button type="submit" disabled={busy} className={`${buttonPrimary} inline-flex items-center justify-center gap-2 disabled:opacity-70`}>
-              {isSignUp ? <UserPlus size={20} aria-hidden="true" /> : <LogIn size={20} aria-hidden="true" />}
+            <button type="submit" disabled={busy} className={`${buttonPrimary} mt-1 inline-flex w-full items-center justify-center gap-2 disabled:opacity-70`}>
+              {isSignUp ? <UserPlus size={16} aria-hidden="true" /> : <LogIn size={16} aria-hidden="true" />}
               {busy ? 'Please wait…' : isSignUp ? 'Create account' : 'Sign in'}
             </button>
           </form>
 
-          <p className="mt-4 text-sm">
+          <p className="mt-6 text-center text-sm text-text-muted">
             {isSignUp ? 'Already have an account? ' : 'New here? '}
             <button
               type="button"
               onClick={() => switchMode(isSignUp ? 'signin' : 'signup')}
-              className="font-semibold text-brand-accent underline"
+              className="font-medium text-text-primary underline underline-offset-2 hover:text-brand-accent"
             >
               {isSignUp ? 'Sign in' : 'Create an account'}
             </button>
           </p>
         </section>
 
-        <aside aria-labelledby="demo-heading" className="rounded-lg border border-surface-border bg-surface-card p-6">
-          <h2 id="demo-heading" className="text-lg font-bold">Demo accounts</h2>
-          <p className="mt-1 text-sm text-text-muted">
-            Password for each: <span className="font-mono">{DEMO_PASSWORD}</span>. Roles change what you can do.
-          </p>
-          <ul className="mt-3 flex flex-col gap-2">
+        <aside aria-labelledby="demo-heading">
+          <div className="flex items-baseline justify-between gap-2 px-1">
+            <h2 id="demo-heading" className="text-xs font-medium text-text-muted">Demo accounts</h2>
+            <p className="text-xs text-text-muted">
+              Password <span className="font-mono text-text-primary">{DEMO_PASSWORD}</span>
+            </p>
+          </div>
+          <ul className="mt-2 divide-y divide-surface-hairline overflow-hidden rounded-xl border border-surface-hairline bg-surface-card">
             {USERS.map((user) => (
               <li key={user.id}>
                 <button
                   type="button"
                   onClick={() => fillDemo(user)}
-                  className="flex w-full items-center gap-3 rounded-md border border-surface-border p-2 text-left hover:border-brand-accent"
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-surface-subtle"
                 >
-                  <OwnerAvatar task={{ assignedUserId: user.id }} />
-                  <span className="min-w-0">
-                    <span className="block font-semibold">{user.name}</span>
-                    <span className="block text-sm text-text-muted">{findById(ROLES, user.roleId)?.name}</span>
+                  <OwnerAvatar task={{ assignedUserId: user.id }} size="h-7 w-7 text-[0.6875rem]" />
+                  <span className="flex min-w-0 flex-1 items-baseline justify-between gap-2">
+                    <span className="truncate text-sm font-medium">{user.name}</span>
+                    <span className="shrink-0 text-xs text-text-muted">{findById(ROLES, user.roleId)?.name}</span>
                   </span>
                   <span className="sr-only">: fill in this account</span>
                 </button>
               </li>
             ))}
           </ul>
+          <p className="mt-2 px-1 text-xs text-text-muted">Roles change what you can do.</p>
         </aside>
       </main>
     </div>
@@ -1981,20 +1982,21 @@ function LoginScreen({ users, onSignIn, onRegister }) {
 /** Signed-in user, their role, and the sign-out button for the header. */
 function AccountMenu({ user, onSignOut }) {
   return (
-    <div className="flex items-end gap-3">
-      <div className="flex items-center gap-2">
-        <OwnerAvatar task={{ assignedUserId: user.id }} />
-        <div className="text-sm">
-          <p className="font-semibold">
+    <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2 pr-1">
+        <OwnerAvatar task={{ assignedUserId: user.id }} size="h-7 w-7 text-[0.6875rem]" />
+        <div className="hidden text-xs leading-tight md:block">
+          <p className="font-medium">
             <span className="sr-only">Signed in as </span>
             {user.name}
           </p>
           <p className="text-text-muted">{findById(ROLES, user.roleId)?.name}</p>
         </div>
+        <span className="sr-only md:hidden">Signed in as {user.name}</span>
       </div>
-      <button type="button" onClick={onSignOut} className={`${buttonSecondary} inline-flex items-center gap-2`}>
-        <LogOut size={18} aria-hidden="true" />
-        Sign out
+      <button type="button" onClick={onSignOut} title="Sign out" className={iconButton}>
+        <LogOut size={16} aria-hidden="true" />
+        <span className="sr-only">Sign out</span>
       </button>
     </div>
   );
@@ -2271,33 +2273,26 @@ function Tracker({ currentUser, onSignOut }) {
       {/* WCAG 2.4.1 Bypass Blocks: first Tab stop, visible only when focused. */}
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-brand-primary focus:px-4 focus:py-3 focus:font-semibold focus:text-on-fill"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-brand-primary focus:px-4 focus:py-2.5 focus:text-sm focus:font-medium focus:text-on-fill"
       >
         Skip to main content
       </a>
 
-      <header className="border-b border-surface-border bg-surface-card">
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-end justify-between gap-4 px-4 py-5 sm:px-6">
-          <div>
-            <h1 className="text-[1.75rem] font-bold leading-tight text-brand-primary">
-              Vibecoding Project Tracker
-            </h1>
-            <p className="mt-1 text-sm text-text-muted">
-              Track vibecoding tickets and the AI context behind them.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-end gap-4">
-            <AccountMenu user={currentUser} onSignOut={onSignOut} />
+      <header className="sticky top-0 z-30 border-b border-surface-hairline bg-surface-page/90 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-[1600px] items-center justify-between gap-3 px-4 sm:px-6">
+          <Logo as="h1" />
+          <div className="flex items-center gap-2 sm:gap-3">
             <ThemeToggle />
+            <AccountMenu user={currentUser} onSignOut={onSignOut} />
             <button
               ref={newButtonRef}
               type="button"
-              className={`${buttonPrimary} inline-flex items-center gap-2 shadow-sm`}
+              className={`${buttonPrimary} inline-flex items-center gap-1.5`}
               onClick={(e) => openModal(emptyDraft(), e.currentTarget)}
               aria-label="Create new ticket"
             >
-              <Plus size={20} strokeWidth={2.5} aria-hidden="true" />
-              New ticket
+              <Plus size={16} strokeWidth={2.25} aria-hidden="true" />
+              <span className="hidden sm:inline">New ticket</span>
             </button>
           </div>
         </div>
@@ -2319,7 +2314,7 @@ function Tracker({ currentUser, onSignOut }) {
           <DrivingStrip tasks={tasks} />
 
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-text-muted">
+            <p className="text-xs tabular-nums text-text-muted">
               {plural(tasks.length, 'ticket')}
               {collapsedIds.length > 0 && ` · ${tasks.filter((t) => collapsedIds.includes(t.id)).length} collapsed`}
             </p>
@@ -2339,7 +2334,7 @@ function Tracker({ currentUser, onSignOut }) {
             onDragEnd={handleDragEnd}
             onDragCancel={handleDragCancel}
           >
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
               {STAGES.map((stage) => (
                 <Column
                   key={stage.id}
@@ -2390,16 +2385,16 @@ function Tracker({ currentUser, onSignOut }) {
             onMouseLeave={() => setToastPaused(false)}
             onFocus={() => setToastPaused(true)}
             onBlur={() => setToastPaused(false)}
-            className="pointer-events-auto flex items-center gap-3 rounded-lg border border-transparent bg-text-primary py-1 pl-4 pr-1 font-semibold text-on-fill shadow-lg motion-safe:animate-[fade-in_200ms_ease-out]"
+            className="pointer-events-auto flex items-center gap-2 rounded-lg border border-transparent bg-text-primary py-1 pl-4 pr-1 text-sm font-medium text-on-fill shadow-lg motion-safe:animate-[fade-in_200ms_ease-out]"
           >
             <p>{toast}</p>
             <button
               type="button"
               onClick={dismissToast}
               aria-label="Dismiss message"
-              className="inline-flex min-h-target min-w-target items-center justify-center rounded-md hover:bg-on-fill/15 focus-visible:outline-on-fill"
+              className="inline-flex min-h-target-sm min-w-target-sm items-center justify-center rounded-md hover:bg-on-fill/15 focus-visible:outline-on-fill"
             >
-              <X size={20} aria-hidden="true" />
+              <X size={16} aria-hidden="true" />
             </button>
           </div>
         )}

@@ -3,19 +3,21 @@
 @tailwind utilities;
 
 /*
- * Theme tokens (DESIGN.md §2) as space-separated RGB so Tailwind can apply opacity.
+ * Lineage theme tokens (docs/design-rationale.html) as space-separated RGB so Tailwind can apply opacity.
  * index.html sets data-theme on <html> before first paint from the saved choice
- * or the OS preference. Every pairing meets WCAG AA; most meet AAA.
+ * or the OS preference. Text pairings meet WCAG AA (most AAA); control borders meet 3:1.
  */
 :root {
   color-scheme: light;
-  --brand-primary: 55 48 163;      /* #3730A3 */
-  --brand-accent: 79 70 229;       /* #4F46E5 */
-  --surface-page: 248 250 252;     /* #F8FAFC */
+  --brand-primary: 24 24 27;       /* #18181B ink: primary actions */
+  --brand-accent: 79 70 229;       /* #4F46E5 indigo: focus, links, selection */
+  --surface-page: 250 250 250;     /* #FAFAFA */
   --surface-card: 255 255 255;     /* #FFFFFF */
-  --surface-border: 100 116 139;   /* #64748B */
-  --text-primary: 15 23 42;        /* #0F172A */
-  --text-muted: 71 85 105;         /* #475569 */
+  --surface-subtle: 244 244 245;   /* #F4F4F5 column wells, hovers */
+  --surface-hairline: 228 228 231; /* #E4E4E7 decorative dividers only */
+  --surface-border: 138 138 147;   /* #8A8A93 control borders, 3.4:1 on card */
+  --text-primary: 24 24 27;        /* #18181B */
+  --text-muted: 82 82 91;          /* #52525B 7.7:1 on card */
   --on-fill: 255 255 255;          /* #FFFFFF */
   --type-safe-change: 15 118 110;  /* #0F766E */
   --type-bug: 157 23 77;           /* #9D174D */
@@ -26,34 +28,36 @@
   --due-soon: 133 77 14;           /* #854D0E */
   --due-soon-tint: 254 252 232;    /* #FEFCE8 */
   --due-safe: 21 128 61;           /* #15803D */
-  --due-safe-tint: 255 255 255;    /* #FFFFFF */
-  --due-neutral: 71 85 105;        /* #475569 */
-  --due-neutral-tint: 241 245 249; /* #F1F5F9 */
+  --due-safe-tint: 240 253 244;    /* #F0FDF4 */
+  --due-neutral: 82 82 91;         /* #52525B */
+  --due-neutral-tint: 244 244 245; /* #F4F4F5 */
 }
 
-/* Dark: lighter, desaturated tones on slate, with dark text on filled colours. */
+/* Dark: near-black zinc, never pure #000; desaturated status colours with dark text on fills. */
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --brand-primary: 165 180 252;    /* #A5B4FC */
-  --brand-accent: 199 210 254;     /* #C7D2FE */
-  --surface-page: 15 23 42;        /* #0F172A */
-  --surface-card: 30 41 59;        /* #1E293B */
-  --surface-border: 148 163 184;   /* #94A3B8 */
-  --text-primary: 241 245 249;     /* #F1F5F9 */
-  --text-muted: 203 213 225;       /* #CBD5E1 */
-  --on-fill: 15 23 42;             /* #0F172A */
+  --brand-primary: 250 250 250;    /* #FAFAFA */
+  --brand-accent: 165 180 252;     /* #A5B4FC */
+  --surface-page: 9 9 11;          /* #09090B */
+  --surface-card: 17 17 19;        /* #111113 */
+  --surface-subtle: 24 24 27;      /* #18181B */
+  --surface-hairline: 39 39 42;    /* #27272A */
+  --surface-border: 113 113 122;   /* #71717A 3.9:1 on card */
+  --text-primary: 250 250 250;     /* #FAFAFA */
+  --text-muted: 161 161 170;       /* #A1A1AA 7.4:1 on card */
+  --on-fill: 9 9 11;               /* #09090B */
   --type-safe-change: 94 234 212;  /* #5EEAD4 */
   --type-bug: 249 168 212;         /* #F9A8D4 */
   --due-overdue: 252 165 165;      /* #FCA5A5 */
-  --due-overdue-tint: 59 26 34;    /* #3B1A22 */
+  --due-overdue-tint: 50 20 24;    /* #321418 */
   --due-warning: 253 186 116;      /* #FDBA74 */
-  --due-warning-tint: 58 36 22;    /* #3A2416 */
+  --due-warning-tint: 48 30 16;    /* #301E10 */
   --due-soon: 253 224 71;          /* #FDE047 */
-  --due-soon-tint: 51 48 15;       /* #33300F */
+  --due-soon-tint: 42 38 12;       /* #2A260C */
   --due-safe: 134 239 172;         /* #86EFAC */
-  --due-safe-tint: 30 41 59;       /* #1E293B */
-  --due-neutral: 203 213 225;      /* #CBD5E1 */
-  --due-neutral-tint: 22 32 50;    /* #162032 */
+  --due-safe-tint: 17 34 24;       /* #112218 */
+  --due-neutral: 161 161 170;      /* #A1A1AA */
+  --due-neutral-tint: 24 24 27;    /* #18181B */
 }
 
 html, body, #root {
@@ -61,99 +65,74 @@ html, body, #root {
 }
 
 body {
-  @apply bg-surface-page font-sans text-text-primary;
+  @apply bg-surface-page font-sans text-text-primary antialiased;
   font-size: 1rem;
   line-height: 1.5;
 }
 
-/* DESIGN.md §4: thick, always-visible keyboard focus ring */
+/* Visible keyboard focus ring in the accent colour (WCAG 2.4.7). */
 :focus-visible {
-  outline: 3px solid theme('colors.brand.primary');
+  outline: 2px solid theme('colors.brand.accent');
   outline-offset: 2px;
 }
 
 /*
- * Brushed-silver ticket outline, inspired by React Bits' Holo Card (reactbits.dev/components/holo-card).
- * A CSS take on its pointer-tracked foil, so every card can have one without a WebGL context each:
- *   1. glare — soft highlight that sits under the pointer
- *   2. foil  — conic silver gradient rotating with the pointer, like light catching metal
- * Masked to a 2px ring so it never sits behind text, and only shown on hover, keyboard
- * focus or while dragging, so the board stays calm at rest (DESIGN.md §1).
+ * Progressive disclosure for secondary card controls (hand off, move): on devices with a precise
+ * hover pointer they appear on hover or keyboard focus. Touch screens always show them, and
+ * "Copy context" is never hidden because it is the product's primary action.
  */
-.holo-outline {
-  --holo-x: 50%;
-  --holo-y: 50%;
-  --holo-angle: 180deg;
-  /* Silver ramp per theme: darker steel on light backgrounds so the ring stays visible. */
-  --silver-shadow: #64748b;
-  --silver-mid: #94a3b8;
-  --silver-light: #e2e8f0;
-  --silver-glare: rgb(255 255 255 / 0.9);
+@media (hover: hover) and (pointer: fine) {
+  .card-secondary {
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  .card:hover .card-secondary,
+  .card:focus-within .card-secondary,
+  .card[data-dragging] .card-secondary {
+    opacity: 1;
+  }
 }
 
-:root[data-theme='dark'] .holo-outline {
-  --silver-shadow: #475569;
-  --silver-mid: #94a3b8;
-  --silver-light: #f1f5f9;
-  --silver-glare: rgb(255 255 255 / 0.75);
+/* Chevron for native selects (appearance: none), drawn in text-muted for each theme. */
+.select-chevron {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2352525B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  background-size: 1rem;
+}
+:root[data-theme='dark'] .select-chevron {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23A1A1AA' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
-.holo-outline::before {
-  content: '';
-  position: absolute;
-  /* Offsets are from the padding box: clear the 1px border (4px type stripe on the left) plus the 2px ring,
-     so the foil sits just outside the card and never covers the stripe. */
-  inset: -3px -3px -3px -6px;
-  border-radius: calc(0.375rem + 2px);
-  padding: 2px;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at var(--holo-x) var(--holo-y), var(--silver-glare), transparent 35%),
-    conic-gradient(
-      from var(--holo-angle) at var(--holo-x) var(--holo-y),
-      var(--silver-shadow), var(--silver-light), var(--silver-mid), var(--silver-light),
-      var(--silver-shadow), var(--silver-mid), var(--silver-shadow)
-    );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
-  opacity: 0;
-  transition: opacity 200ms ease-out;
-}
+/* M9: rendered Markdown context. */
+.markdown { font-size: 0.875rem; }
+.markdown > * + * { margin-top: 0.625rem; }
+.markdown h1 { font-size: 1.125rem; font-weight: 600; }
+.markdown h2 { font-size: 1rem; font-weight: 600; }
+.markdown h3, .markdown h4 { font-size: 0.875rem; font-weight: 600; }
+.markdown ul { list-style: disc; padding-left: 1.25rem; }
+.markdown ol { list-style: decimal; padding-left: 1.25rem; }
+.markdown a { @apply font-medium text-brand-accent underline underline-offset-2; }
+.markdown code { @apply rounded bg-surface-subtle px-1 py-0.5 font-mono text-[0.8125rem]; }
+.markdown pre { @apply overflow-x-auto rounded-md border border-surface-hairline bg-surface-subtle p-3 font-mono text-[0.8125rem]; }
+.markdown pre code { padding: 0; background: none; }
+.markdown blockquote { @apply border-l-2 border-surface-hairline pl-3 text-text-muted; }
 
-.holo-outline:hover::before,
-.holo-outline:focus-within::before,
-.holo-outline[data-dragging]::before {
-  opacity: 1;
-}
-
-/* M9: rendered Markdown context. Sizes stay at or above the 14px minimum (DESIGN.md §3). */
-.markdown > * + * { margin-top: 0.75rem; }
-.markdown h1 { font-size: 1.25rem; font-weight: 700; }
-.markdown h2 { font-size: 1.125rem; font-weight: 700; }
-.markdown h3, .markdown h4 { font-size: 1rem; font-weight: 700; }
-.markdown ul { list-style: disc; padding-left: 1.5rem; }
-.markdown ol { list-style: decimal; padding-left: 1.5rem; }
-.markdown a { @apply font-semibold text-brand-accent underline; }
-.markdown code { @apply rounded bg-surface-card px-1 font-mono text-sm; }
-.markdown pre { @apply overflow-x-auto rounded-md border border-surface-border bg-surface-card p-3 font-mono text-sm; }
-.markdown pre code { padding: 0; }
-.markdown blockquote { @apply border-l-4 border-surface-border pl-3 text-text-muted; }
-
-/* DESIGN.md §4: modal backdrop — slate-900 at 60% (80% in dark so the modal still stands out) */
+/* Modal backdrop: a light veil, darker in dark mode so the dialog still separates from the page. */
 dialog::backdrop {
-  background-color: rgb(15 23 42 / 0.6);
+  background-color: rgb(9 9 11 / 0.4);
+  backdrop-filter: blur(2px);
 }
 :root[data-theme='dark'] dialog::backdrop {
-  background-color: rgb(2 6 23 / 0.8);
+  background-color: rgb(0 0 0 / 0.7);
 }
 
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
 }
 
-/* DESIGN.md §4: disable motion for users who ask for it */
+/* Disable motion for users who ask for it (WCAG 2.3.3). */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -165,8 +144,10 @@ dialog::backdrop {
 
 /*
  * Windows High Contrast / forced colours: the OS replaces our palette, so filled badges and the
- * toast keep a visible edge through their transparent borders, and the decorative foil is dropped.
+ * toast keep a visible edge through their transparent borders, and hidden card controls are shown.
  */
 @media (forced-colors: active) {
-  .holo-outline::before { display: none; }
+  .card-secondary { opacity: 1 !important; }
+  /* Background images are dropped in forced colours, so bring back the native arrow. */
+  .select-chevron { appearance: auto; }
 }
